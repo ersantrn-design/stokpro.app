@@ -1,4 +1,3 @@
-import React from "react";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -369,7 +368,66 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   };
 
   const exportCSV = () => {
-    downloadCSV(products.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode, Kategori: p.category, Marka: p.brand, Varyant: p.variant, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Durum: p.stock <= p.minStock ? "KRİTİK" : "Normal" })), "urunler.csv");
+    downloadCSV(products.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode, Kategori: p.category, Marka: p.brand, Varyant: p.variant, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Açıklama: p.description || "" })), "urunler.csv");
+  };
+
+  const downloadTemplate = () => {
+    downloadCSV([{ "Ürün Adı": "Örnek Ürün", SKU: "URN-001", Barkod: "1234567890", Kategori: "Elektronik", Marka: "Marka", Varyant: "Renk/Beden", "Mevcut Stok": 10, "Min Stok": 5, Açıklama: "Opsiyonel" }], "urun-sablonu.csv");
+  };
+
+  const handleCSVImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split("
+").map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { notify("CSV dosyası boş veya hatalı", "error"); return; }
+      const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim());
+      const colMap = {
+        name: headers.findIndex(h => h.includes("Ürün") || h.toLowerCase() === "name"),
+        sku: headers.findIndex(h => h.includes("SKU") || h.toLowerCase() === "sku"),
+        barcode: headers.findIndex(h => h.includes("Barkod") || h.toLowerCase() === "barcode"),
+        category: headers.findIndex(h => h.includes("Kategori") || h.toLowerCase() === "category"),
+        brand: headers.findIndex(h => h.includes("Marka") || h.toLowerCase() === "brand"),
+        variant: headers.findIndex(h => h.includes("Varyant") || h.toLowerCase() === "variant"),
+        stock: headers.findIndex(h => h.includes("Mevcut Stok") || h.toLowerCase() === "stock"),
+        minStock: headers.findIndex(h => h.includes("Min Stok") || h.toLowerCase() === "min"),
+        description: headers.findIndex(h => h.includes("Açıklama") || h.toLowerCase() === "description"),
+      };
+      if (colMap.name === -1 || colMap.sku === -1) { notify("CSV'de 'Ürün Adı' ve 'SKU' sütunları zorunludur", "error"); return; }
+      const parseRow = (line) => {
+        const cols = []; let cur = ""; let inQ = false;
+        for (let c of line) { if (c === '"') inQ = !inQ; else if (c === "," && !inQ) { cols.push(cur.trim()); cur = ""; } else cur += c; }
+        cols.push(cur.trim()); return cols;
+      };
+      let added = 0; let updated = 0; let errors = 0;
+      const newProducts = [...products];
+      lines.slice(1).forEach(line => {
+        const cols = parseRow(line);
+        const name = cols[colMap.name]?.replace(/^"|"$/g, "") || "";
+        const sku = cols[colMap.sku]?.replace(/^"|"$/g, "") || "";
+        if (!name || !sku) { errors++; return; }
+        const existing = newProducts.findIndex(p => p.sku === sku);
+        const productData = {
+          name, sku,
+          barcode: colMap.barcode >= 0 ? (cols[colMap.barcode]?.replace(/^"|"$/g, "") || "") : "",
+          category: colMap.category >= 0 ? (cols[colMap.category]?.replace(/^"|"$/g, "") || "") : "",
+          brand: colMap.brand >= 0 ? (cols[colMap.brand]?.replace(/^"|"$/g, "") || "") : "",
+          variant: colMap.variant >= 0 ? (cols[colMap.variant]?.replace(/^"|"$/g, "") || "") : "",
+          stock: colMap.stock >= 0 ? (parseInt(cols[colMap.stock]) || 0) : 0,
+          minStock: colMap.minStock >= 0 ? (parseInt(cols[colMap.minStock]) || 0) : 0,
+          description: colMap.description >= 0 ? (cols[colMap.description]?.replace(/^"|"$/g, "") || "") : "",
+        };
+        if (existing >= 0) { newProducts[existing] = { ...newProducts[existing], ...productData }; updated++; }
+        else { newProducts.push({ ...productData, id: generateId(), createdAt: now() }); added++; }
+      });
+      setProducts(newProducts);
+      notify(`CSV yüklendi: ${added} yeni ürün eklendi, ${updated} güncellendi${errors > 0 ? ", " + errors + " hatalı satır atlandı" : ""}`);
+      e.target.value = "";
+    };
+    reader.readAsText(file, "UTF-8");
   };
 
   const Field = ({ label, field, type = "text", options, span }) => (
@@ -400,6 +458,13 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
             <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
               <Icon name="download" size={15} /> CSV İndir
             </button>
+            <button onClick={downloadTemplate} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+              <Icon name="download" size={15} /> Şablon İndir
+            </button>
+            <label className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, color: "#4ade80", cursor: "pointer", fontSize: 14, fontWeight: 500, transition: "all 0.15s" }}>
+              <Icon name="upload" size={15} /> CSV Yükle
+              <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
+            </label>
             <button onClick={openAdd} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
               <Icon name="plus" size={15} /> Yeni Ürün
             </button>
