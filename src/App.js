@@ -367,10 +367,12 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
 function ProductsPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("");
-  const [modal, setModal] = useState(null); // null | "add" | "edit" | "view" | "move"
+  const [modal, setModal] = useState(null); // null | "add" | "edit" | "view" | "move" | "bulkMove"
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({});
   const [moveForm, setMoveForm] = useState({ type: "Giriş", quantity: "", note: "" });
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkMoveForm, setBulkMoveForm] = useState({ type: "Giriş", quantity: "", note: "" });
 
   const canEdit = user.role !== "viewer";
 
@@ -430,6 +432,51 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     if (error) { notify("Ürün silinemedi: " + error.message, "error"); return; }
     setProducts(prev => prev.filter(x => x.id !== p.id));
     notify("Ürün silindi");
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map(p => p.id)));
+  };
+
+  const bulkDelete = async () => {
+    if (!selectedIds.size) return;
+    if (!window.confirm(`${selectedIds.size} ürünü silmek istediğinize emin misiniz?`)) return;
+    const ids = [...selectedIds];
+    const { error } = await supabase.from("products").delete().in("id", ids);
+    if (error) { notify("Toplu silme başarısız", "error"); return; }
+    setProducts(prev => prev.filter(p => !ids.includes(p.id)));
+    setSelectedIds(new Set());
+    notify(`${ids.length} ürün silindi`);
+  };
+
+  const bulkMove = async () => {
+    const qty = parseInt(bulkMoveForm.quantity);
+    if (!qty || qty <= 0) { notify("Geçerli miktar girin", "error"); return; }
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      const p = products.find(x => x.id === id);
+      if (!p) continue;
+      const prev = p.stock;
+      const next = bulkMoveForm.type === "Giriş" ? prev + qty : Math.max(0, prev - qty);
+      await supabase.from("products").update({ stock: next }).eq("id", id);
+      await supabase.from("movements").insert([{ product_id: id, product_name: p.name, type: bulkMoveForm.type, quantity: qty, prev_stock: prev, next_stock: next, username: user.username, note: bulkMoveForm.note || "Toplu işlem" }]);
+    }
+    const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+    if (fresh) setProducts(fresh.map(mapProduct));
+    const { data: moves } = await supabase.from("movements").select("*").order("created_at", { ascending: false });
+    if (moves) setMovements(moves.map(mapMovement));
+    setSelectedIds(new Set());
+    setModal(null);
+    notify(`${ids.length} ürüne toplu ${bulkMoveForm.type} yapıldı`);
   };
 
   const exportCSV = () => {
@@ -518,25 +565,39 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Ürün Yönetimi</h1>
-          <p style={{ color: "#475569", margin: "4px 0 0", fontSize: 13 }}>{products.length} ürün kayıtlı</p>
+          <p style={{ color: "#475569", margin: "4px 0 0", fontSize: 13 }}>{products.length} ürün kayıtlı{selectedIds.size > 0 && <span style={{ color: "#60a5fa", marginLeft: 8 }}>· {selectedIds.size} seçili</span>}</p>
         </div>
-        {canEdit && (
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-              <Icon name="download" size={15} /> CSV İndir
-            </button>
-            <button onClick={downloadTemplate} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-              <Icon name="download" size={15} /> Şablon İndir
-            </button>
-            <label className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, color: "#4ade80", cursor: "pointer", fontSize: 14, fontWeight: 500, transition: "all 0.15s" }}>
-              <Icon name="upload" size={15} /> CSV Yükle
-              <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
-            </label>
-            <button onClick={openAdd} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
-              <Icon name="plus" size={15} /> Yeni Ürün
-            </button>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {selectedIds.size > 0 && canEdit && (
+            <>
+              <button onClick={() => { setBulkMoveForm({ type: "Giriş", quantity: "", note: "" }); setModal("bulkMove"); }} className="btn-hover"
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+                <Icon name="movements" size={15} /> Toplu Stok
+              </button>
+              <button onClick={bulkDelete} className="btn-hover"
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10, color: "#f87171", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+                <Icon name="x" size={15} /> Seçilenleri Sil ({selectedIds.size})
+              </button>
+            </>
+          )}
+          {canEdit && (
+            <>
+              <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+                <Icon name="download" size={15} /> CSV İndir
+              </button>
+              <button onClick={downloadTemplate} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+                <Icon name="download" size={15} /> Şablon İndir
+              </button>
+              <label className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, color: "#4ade80", cursor: "pointer", fontSize: 14, fontWeight: 500, transition: "all 0.15s" }}>
+                <Icon name="upload" size={15} /> CSV Yükle
+                <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
+              </label>
+              <button onClick={openAdd} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
+                <Icon name="plus" size={15} /> Yeni Ürün
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
@@ -556,6 +617,9 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+              <th style={{ padding: "12px 12px", width: 40 }}>
+                <input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: "pointer", accentColor: "#3b82f6", width: 15, height: 15 }} />
+              </th>
               {["Ürün Adı", "SKU", "Kategori", "Marka", "Stok", "Min", "Durum", ""].map(h => (
                 <th key={h} style={{ padding: "12px 16px", textAlign: "left", color: "#475569", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
               ))}
@@ -563,7 +627,10 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           </thead>
           <tbody>
             {filtered.map(p => (
-              <tr key={p.id} className="table-row" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", transition: "background 0.1s" }}>
+              <tr key={p.id} className="table-row" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", transition: "background 0.1s", background: selectedIds.has(p.id) ? "rgba(59,130,246,0.07)" : undefined }}>
+                <td style={{ padding: "13px 12px" }}>
+                  <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} style={{ cursor: "pointer", accentColor: "#3b82f6", width: 15, height: 15 }} />
+                </td>
                 <td style={{ padding: "13px 16px" }}>
                   <div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 14 }}>{p.name}</div>
                   <div style={{ fontSize: 11, color: "#475569" }}>{p.barcode}</div>
@@ -594,6 +661,40 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         </table>
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: "48px 0", color: "#475569" }}>Sonuç bulunamadı</div>}
       </div>
+
+            {/* Bulk Move Modal */}
+      {modal === "bulkMove" && (
+        <Modal title={`Toplu Stok İşlemi (${selectedIds.size} ürün)`} onClose={() => setModal(null)}
+          footer={<><button onClick={() => setModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={bulkMove} style={btnStyle("primary")}>Uygula</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 8 }}>Hareket Türü</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["Giriş", "Çıkış"].map(t => (
+                  <button key={t} onClick={() => setBulkMoveForm(f => ({ ...f, type: t }))}
+                    style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${bulkMoveForm.type === t ? (t === "Giriş" ? "#3b82f6" : "#ef4444") : "rgba(255,255,255,0.1)"}`, background: bulkMoveForm.type === t ? (t === "Giriş" ? "rgba(59,130,246,0.15)" : "rgba(239,68,68,0.12)") : "transparent", color: bulkMoveForm.type === t ? (t === "Giriş" ? "#60a5fa" : "#f87171") : "#64748b", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Miktar (tüm seçili ürünlere uygulanır)</label>
+              <input type="number" min="1" value={bulkMoveForm.quantity} onChange={e => setBulkMoveForm(f => ({ ...f, quantity: e.target.value }))}
+                style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+            </div>
+            <div>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Not (opsiyonel)</label>
+              <input value={bulkMoveForm.note} onChange={e => setBulkMoveForm(f => ({ ...f, note: e.target.value }))}
+                placeholder="Toplu işlem notu..."
+                style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+            </div>
+            <div style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 8, padding: "10px 14px", color: "#60a5fa", fontSize: 13 }}>
+              Seçilen {selectedIds.size} ürünün her birine {bulkMoveForm.quantity || "?"} adet {bulkMoveForm.type} uygulanacak.
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Add/Edit Modal */}
       {(modal === "add" || modal === "edit") && (
