@@ -1,33 +1,35 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-// ─── SAMPLE DATA ──────────────────────────────────────────────────────────────
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const SAMPLE_CATEGORIES = ["Elektronik", "Giyim", "Gıda", "Kırtasiye", "Temizlik", "Araç-Gereç"];
 const SAMPLE_BRANDS = ["Samsung", "Nike", "Ülker", "Staedtler", "Mr. Muscle", "Bosch"];
-
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const now = () => new Date().toISOString();
 
-const INITIAL_PRODUCTS = [
-  { id: "p1", name: "Samsung Galaxy A54", sku: "SAM-A54-BLK", barcode: "8690123456789", category: "Elektronik", brand: "Samsung", variant: "Siyah / 128GB", minStock: 5, description: "Akıllı telefon", stock: 23, createdAt: now() },
-  { id: "p2", name: "Nike Air Max 270", sku: "NIK-AM270-42", barcode: "0194501234567", category: "Giyim", brand: "Nike", variant: "Beyaz / 42", minStock: 3, description: "Spor ayakkabı", stock: 8, createdAt: now() },
-  { id: "p3", name: "Ülker Çikolatalı Gofret", sku: "ULK-GOF-40G", barcode: "8690504012345", category: "Gıda", brand: "Ülker", variant: "40g", minStock: 50, description: "Atıştırmalık", stock: 42, createdAt: now() },
-  { id: "p4", name: "Staedtler Kalem Seti", sku: "STD-KLM-12", barcode: "4007817123456", category: "Kırtasiye", brand: "Staedtler", variant: "12li Set", minStock: 10, description: "Renkli kalem", stock: 6, createdAt: now() },
-  { id: "p5", name: "Mr. Muscle Banyo Temizleyici", sku: "MRM-BTZ-500", barcode: "5000204123456", category: "Temizlik", brand: "Mr. Muscle", variant: "500ml", minStock: 15, description: "Sprey temizleyici", stock: 31, createdAt: now() },
-];
-
-const INITIAL_MOVEMENTS = [
-  { id: "m1", productId: "p1", productName: "Samsung Galaxy A54", type: "Giriş", quantity: 10, prevStock: 13, nextStock: 23, user: "admin", note: "Mal kabul - INV-2024-001", createdAt: new Date(Date.now() - 86400000 * 2).toISOString() },
-  { id: "m2", productId: "p3", productName: "Ülker Çikolatalı Gofret", type: "Çıkış", quantity: 8, prevStock: 50, nextStock: 42, user: "depo1", note: "Sipariş #1234", createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: "m3", productId: "p4", productName: "Staedtler Kalem Seti", type: "Çıkış", quantity: 4, prevStock: 10, nextStock: 6, user: "depo1", note: "Ofis kullanımı", createdAt: new Date(Date.now() - 3600000 * 3).toISOString() },
-  { id: "m4", productId: "p2", productName: "Nike Air Max 270", type: "Giriş", quantity: 8, prevStock: 0, nextStock: 8, user: "admin", note: "İlk stok girişi", createdAt: new Date(Date.now() - 86400000 * 5).toISOString() },
-];
-
-const USERS = [
-  { id: "u1", name: "Admin", username: "admin", password: "admin123", role: "admin" },
-  { id: "u2", name: "Depo Personeli", username: "depo1", password: "depo123", role: "user" },
-  { id: "u3", name: "Rapor Kullanıcısı", username: "rapor", password: "rapor123", role: "viewer" },
-];
+// DB row -> app object mappers
+const mapProduct = (r) => ({
+  id: r.id, name: r.name, sku: r.sku, barcode: r.barcode || "",
+  category: r.category || "", brand: r.brand || "", variant: r.variant || "",
+  minStock: r.min_stock, stock: r.stock, description: r.description || "",
+  createdAt: r.created_at,
+});
+const mapMovement = (r) => ({
+  id: r.id, productId: r.product_id, productName: r.product_name,
+  type: r.type, quantity: r.quantity, prevStock: r.prev_stock,
+  nextStock: r.next_stock, user: r.username, note: r.note || "",
+  createdAt: r.created_at,
+});
+const mapUser = (r) => ({
+  id: r.id, name: r.name, username: r.username,
+  password: r.password_hash, role: r.role,
+});
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 18 }) => {
@@ -78,11 +80,24 @@ function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
-    const user = USERS.find(u => u.username === username && u.password === password);
-    if (user) onLogin(user);
-    else setError("Kullanıcı adı veya şifre hatalı");
+  const handleLogin = async () => {
+    if (!username || !password) { setError("Kullanıcı adı ve şifre gerekli"); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const { data, error: dbErr } = await supabase
+        .from("app_users")
+        .select("*")
+        .eq("username", username)
+        .eq("password_hash", password)
+        .eq("is_active", true)
+        .single();
+      if (dbErr || !data) { setError("Kullanıcı adı veya şifre hatalı"); }
+      else { onLogin(mapUser(data)); }
+    } catch (e) { setError("Bağlantı hatası, lütfen tekrar deneyin"); }
+    setLoading(false);
   };
 
   return (
@@ -124,17 +139,45 @@ function LoginScreen({ onLogin }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [page, setPage] = useState("dashboard");
-  const [products, setProducts] = useState(INITIAL_PRODUCTS);
-  const [movements, setMovements] = useState(INITIAL_MOVEMENTS);
+  const [products, setProducts] = useState([]);
+  const [movements, setMovements] = useState([]);
+  const [appUsers, setAppUsers] = useState([]);
   const [notification, setNotification] = useState(null);
-  const [appUsers, setAppUsers] = useState(USERS);
+  const [loading, setLoading] = useState(false);
 
   const notify = (msg, type = "success") => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  // Load data from Supabase after login
+  useEffect(() => {
+    if (!user) return;
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [{ data: prods }, { data: moves }, { data: users }] = await Promise.all([
+          supabase.from("products").select("*").order("created_at", { ascending: false }),
+          supabase.from("movements").select("*").order("created_at", { ascending: false }),
+          supabase.from("app_users").select("*"),
+        ]);
+        if (prods) setProducts(prods.map(mapProduct));
+        if (moves) setMovements(moves.map(mapMovement));
+        if (users) setAppUsers(users.map(mapUser));
+      } catch (e) { notify("Veriler yüklenirken hata oluştu", "error"); }
+      setLoading(false);
+    };
+    loadData();
+  }, [user]);
+
+  if (!user) return <LoginScreen onLogin={setUser} appUsers={appUsers} setAppUsers={setAppUsers} />;
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+      <div style={{ width: 48, height: 48, border: "3px solid #1e293b", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <div style={{ color: "#475569", fontSize: 14 }}>Veriler yükleniyor...</div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
 
   const criticalProducts = products.filter(p => p.stock <= p.minStock);
 
@@ -340,27 +383,41 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   const openView = (p) => { setSelected(p); setModal("view"); };
   const openMove = (p) => { setSelected(p); setMoveForm({ type: "Giriş", quantity: "", note: "" }); setModal("move"); };
 
-  const saveProduct = () => {
+  const saveProduct = async () => {
     if (!form.name || !form.sku) { notify("Ürün adı ve SKU zorunludur", "error"); return; }
+    const dbObj = {
+      name: form.name, sku: form.sku, barcode: form.barcode || "",
+      category: form.category || "", brand: form.brand || "", variant: form.variant || "",
+      min_stock: Number(form.minStock) || 0, stock: Number(form.stock) || 0,
+      description: form.description || "",
+    };
     if (modal === "add") {
-      const newP = { ...form, id: generateId(), stock: Number(form.stock) || 0, minStock: Number(form.minStock) || 0, createdAt: now() };
-      setProducts(prev => [...prev, newP]);
+      const { data, error } = await supabase.from("products").insert([dbObj]).select().single();
+      if (error) { notify("Ürün eklenemedi: " + error.message, "error"); return; }
+      setProducts(prev => [mapProduct(data), ...prev]);
       notify("Ürün eklendi");
     } else {
-      setProducts(prev => prev.map(p => p.id === form.id ? { ...form, stock: Number(form.stock), minStock: Number(form.minStock) } : p));
+      const { error } = await supabase.from("products").update(dbObj).eq("id", form.id);
+      if (error) { notify("Ürün güncellenemedi: " + error.message, "error"); return; }
+      setProducts(prev => prev.map(p => p.id === form.id ? { ...p, ...form, stock: Number(form.stock), minStock: Number(form.minStock) } : p));
       notify("Ürün güncellendi");
     }
     setModal(null);
   };
 
-  const saveMove = () => {
+  const saveMove = async () => {
     const qty = parseInt(moveForm.quantity);
     if (!qty || qty <= 0) { notify("Geçerli bir miktar girin", "error"); return; }
     const prev = selected.stock;
     let next = moveForm.type === "Giriş" ? prev + qty : prev - qty;
     if (next < 0) { notify("Stok yetersiz", "error"); return; }
+    const { error: prodErr } = await supabase.from("products").update({ stock: next }).eq("id", selected.id);
+    if (prodErr) { notify("Stok güncellenemedi", "error"); return; }
+    const mvRow = { product_id: selected.id, product_name: selected.name, type: moveForm.type, quantity: qty, prev_stock: prev, next_stock: next, username: user.username, note: moveForm.note || "" };
+    const { data: mvData, error: mvErr } = await supabase.from("movements").insert([mvRow]).select().single();
+    if (mvErr) { notify("Hareket kaydedilemedi", "error"); return; }
     setProducts(ps => ps.map(p => p.id === selected.id ? { ...p, stock: next } : p));
-    setMovements(ms => [...ms, { id: generateId(), productId: selected.id, productName: selected.name, type: moveForm.type, quantity: qty, prevStock: prev, nextStock: next, user: user.username, note: moveForm.note, createdAt: now() }]);
+    setMovements(ms => [mapMovement(mvData), ...ms]);
     notify(`${moveForm.type} işlemi kaydedildi`);
     setModal(null);
   };
@@ -400,13 +457,13 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         cols.push(cur.trim()); return cols;
       };
       let added = 0; let updated = 0; let errors = 0;
-      const newProducts = [...products];
+      const toInsert = []; const toUpdate = [];
       lines.slice(1).forEach(line => {
         const cols = parseRow(line);
         const name = cols[colMap.name]?.replace(/^"|"$/g, "") || "";
         const sku = cols[colMap.sku]?.replace(/^"|"$/g, "") || "";
         if (!name || !sku) { errors++; return; }
-        const existing = newProducts.findIndex(p => p.sku === sku);
+        const existing = products.find(p => p.sku === sku);
         const productData = {
           name, sku,
           barcode: colMap.barcode >= 0 ? (cols[colMap.barcode]?.replace(/^"|"$/g, "") || "") : "",
@@ -414,13 +471,16 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           brand: colMap.brand >= 0 ? (cols[colMap.brand]?.replace(/^"|"$/g, "") || "") : "",
           variant: colMap.variant >= 0 ? (cols[colMap.variant]?.replace(/^"|"$/g, "") || "") : "",
           stock: colMap.stock >= 0 ? (parseInt(cols[colMap.stock]) || 0) : 0,
-          minStock: colMap.minStock >= 0 ? (parseInt(cols[colMap.minStock]) || 0) : 0,
+          min_stock: colMap.minStock >= 0 ? (parseInt(cols[colMap.minStock]) || 0) : 0,
           description: colMap.description >= 0 ? (cols[colMap.description]?.replace(/^"|"$/g, "") || "") : "",
         };
-        if (existing >= 0) { newProducts[existing] = { ...newProducts[existing], ...productData }; updated++; }
-        else { newProducts.push({ ...productData, id: generateId(), createdAt: now() }); added++; }
+        if (existing) { toUpdate.push({ ...productData, id: existing.id }); updated++; }
+        else { toInsert.push(productData); added++; }
       });
-      setProducts(newProducts);
+      if (toInsert.length > 0) await supabase.from("products").insert(toInsert);
+      for (const p of toUpdate) { await supabase.from("products").update(p).eq("id", p.id); }
+      const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+      if (fresh) setProducts(fresh.map(mapProduct));
       notify(`CSV yüklendi: ${added} yeni ürün eklendi, ${updated} güncellendi${errors > 0 ? ", " + errors + " hatalı satır atlandı" : ""}`);
       e.target.value = "";
     };
@@ -605,15 +665,20 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
       (!filterDate || m.createdAt.startsWith(filterDate));
   }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  const saveMove = () => {
+  const saveMove = async () => {
     const product = products.find(p => p.id === form.productId);
     if (!product) { notify("Ürün seçin", "error"); return; }
     const qty = parseInt(form.quantity);
     if (!qty || qty <= 0) { notify("Geçerli miktar girin", "error"); return; }
     const prev = product.stock;
     const next = form.type === "Giriş" ? prev + qty : Math.max(0, prev - qty);
+    const { error: prodErr } = await supabase.from("products").update({ stock: next }).eq("id", product.id);
+    if (prodErr) { notify("Stok güncellenemedi", "error"); return; }
+    const mvRow = { product_id: product.id, product_name: product.name, type: form.type, quantity: qty, prev_stock: prev, next_stock: next, username: user.username, note: form.note || "" };
+    const { data: mvData, error: mvErr } = await supabase.from("movements").insert([mvRow]).select().single();
+    if (mvErr) { notify("Hareket kaydedilemedi", "error"); return; }
     setProducts(ps => ps.map(p => p.id === product.id ? { ...p, stock: next } : p));
-    setMovements(ms => [...ms, { id: generateId(), productId: product.id, productName: product.name, type: form.type, quantity: qty, prevStock: prev, nextStock: next, user: user.username, note: form.note, createdAt: now() }]);
+    setMovements(ms => [mapMovement(mvData), ...ms]);
     notify(`${form.type} hareketi kaydedildi`);
     setModal(false);
   };
@@ -761,14 +826,19 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
   const diffs = filteredProducts.map(p => ({ ...p, counted: countList[p.id] || 0, diff: (countList[p.id] || 0) - p.stock }));
   const hasDiffs = diffs.some(d => d.diff !== 0);
 
-  const applyDiffs = () => {
-    const newMovements = [];
-    diffs.filter(d => d.diff !== 0).forEach(d => {
-      setProducts(ps => ps.map(p => p.id === d.id ? { ...p, stock: d.counted } : p));
-      newMovements.push({ id: generateId(), productId: d.id, productName: d.name, type: "Sayım Farkı", quantity: Math.abs(d.diff), prevStock: d.stock, nextStock: d.counted, user: user.username, note: `Sayım: ${countName}`, createdAt: now() });
-    });
-    setMovements(ms => [...ms, ...newMovements]);
-    notify(`${newMovements.length} ürün stoğa yansıtıldı`);
+  const applyDiffs = async () => {
+    const changed = diffs.filter(d => d.diff !== 0);
+    for (const d of changed) {
+      await supabase.from("products").update({ stock: d.counted }).eq("id", d.id);
+      await supabase.from("movements").insert([{ product_id: d.id, product_name: d.name, type: "Sayım Farkı", quantity: Math.abs(d.diff), prev_stock: d.stock, next_stock: d.counted, username: user.username, note: `Sayım: ${countName}` }]);
+    }
+    const [{ data: prods }, { data: moves }] = await Promise.all([
+      supabase.from("products").select("*").order("created_at", { ascending: false }),
+      supabase.from("movements").select("*").order("created_at", { ascending: false }),
+    ]);
+    if (prods) setProducts(prods.map(mapProduct));
+    if (moves) setMovements(moves.map(mapMovement));
+    notify(`${changed.length} ürün stoğa yansıtıldı`);
     setPhase("setup");
     setCountList({});
   };
@@ -1139,35 +1209,44 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify }) {
   const [editTarget, setEditTarget] = useState(null);
   const [uForm, setUForm] = useState({ name: "", username: "", password: "", role: "user" });
 
-  const changePassword = () => {
+  const changePassword = async () => {
     if (!pwForm.current || !pwForm.newPw || !pwForm.confirm) { notify("Tüm alanları doldurun", "error"); return; }
     if (pwForm.current !== user.password) { notify("Mevcut şifre hatalı", "error"); return; }
     if (pwForm.newPw !== pwForm.confirm) { notify("Yeni şifreler eşleşmiyor", "error"); return; }
     if (pwForm.newPw.length < 6) { notify("Şifre en az 6 karakter olmalı", "error"); return; }
+    const { error } = await supabase.from("app_users").update({ password_hash: pwForm.newPw }).eq("id", user.id);
+    if (error) { notify("Şifre güncellenemedi", "error"); return; }
     setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, password: pwForm.newPw } : u));
     setUser(u => ({ ...u, password: pwForm.newPw }));
     setPwForm({ current: "", newPw: "", confirm: "" });
     notify("Şifre başarıyla güncellendi");
   };
 
-  const saveUser = () => {
+  const saveUser = async () => {
     if (!uForm.name || !uForm.username || !uForm.password) { notify("Ad, kullanıcı adı ve şifre zorunludur", "error"); return; }
     if (uForm.password.length < 6) { notify("Şifre en az 6 karakter olmalı", "error"); return; }
+    const dbObj = { name: uForm.name, username: uForm.username, password_hash: uForm.password, role: uForm.role, is_active: true };
     if (userModal === "add") {
       const exists = appUsers.find(u => u.username === uForm.username);
       if (exists) { notify("Bu kullanıcı adı zaten kullanılıyor", "error"); return; }
-      setAppUsers(prev => [...prev, { ...uForm, id: generateId() }]);
+      const { data, error } = await supabase.from("app_users").insert([dbObj]).select().single();
+      if (error) { notify("Kullanıcı eklenemedi", "error"); return; }
+      setAppUsers(prev => [...prev, mapUser(data)]);
       notify("Kullanıcı eklendi");
     } else {
-      setAppUsers(prev => prev.map(u => u.id === editTarget.id ? { ...u, ...uForm } : u));
-      if (editTarget.id === user.id) setUser(u => ({ ...u, ...uForm }));
+      const { error } = await supabase.from("app_users").update(dbObj).eq("id", editTarget.id);
+      if (error) { notify("Kullanıcı güncellenemedi", "error"); return; }
+      setAppUsers(prev => prev.map(u => u.id === editTarget.id ? { ...u, ...uForm, password: uForm.password } : u));
+      if (editTarget.id === user.id) setUser(u => ({ ...u, name: uForm.name, username: uForm.username, password: uForm.password, role: uForm.role }));
       notify("Kullanıcı güncellendi");
     }
     setUserModal(null);
   };
 
-  const deleteUser = (u) => {
+  const deleteUser = async (u) => {
     if (u.id === user.id) { notify("Kendi hesabınızı silemezsiniz", "error"); return; }
+    const { error } = await supabase.from("app_users").update({ is_active: false }).eq("id", u.id);
+    if (error) { notify("Kullanıcı silinemedi", "error"); return; }
     setAppUsers(prev => prev.filter(p => p.id !== u.id));
     notify("Kullanıcı silindi");
   };
