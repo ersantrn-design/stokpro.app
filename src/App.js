@@ -430,11 +430,11 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     downloadCSV([{ "Ürün Adı": "Örnek Ürün", SKU: "URN-001", Barkod: "1234567890", Kategori: "Elektronik", Marka: "Marka", Varyant: "Renk/Beden", "Mevcut Stok": 10, "Min Stok": 5, Açıklama: "Opsiyonel" }], "urun-sablonu.csv");
   };
 
-  const handleCSVImport = (e) => {
+  const handleCSVImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target.result;
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       if (lines.length < 2) { notify("CSV dosyası boş veya hatalı", "error"); return; }
