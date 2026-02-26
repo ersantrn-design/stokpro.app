@@ -8,8 +8,8 @@ const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const SAMPLE_CATEGORIES = ["Elektronik", "Giyim", "Gıda", "Kırtasiye", "Temizlik", "Araç-Gereç"];
-const SAMPLE_BRANDS = ["Samsung", "Nike", "Ülker", "Staedtler", "Mr. Muscle", "Bosch"];
+const DEFAULT_CATEGORIES = ["Elektronik", "Giyim", "Gıda", "Kırtasiye", "Temizlik", "Araç-Gereç"];
+const DEFAULT_BRANDS = ["Samsung", "Nike", "Ülker", "Staedtler", "Mr. Muscle", "Bosch"];
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const now = () => new Date().toISOString();
 
@@ -142,6 +142,8 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [appUsers, setAppUsers] = useState([]);
+  const [categories, setCategories] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_cats")) || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; } });
+  const [brands, setBrands] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_brands")) || DEFAULT_BRANDS; } catch { return DEFAULT_BRANDS; } });
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -183,11 +185,11 @@ export default function App() {
 
   const pages = {
     dashboard: <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />,
-    products: <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} />,
+    products: <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />,
     movements: <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />,
-    counting: <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} />,
+    counting: <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />,
     reports: <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />,
-    settings: <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} />,
+    settings: <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} />,
   };
 
   const navItems = [
@@ -362,7 +364,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
 }
 
 // ─── PRODUCTS PAGE ────────────────────────────────────────────────────────────
-function ProductsPage({ products, setProducts, movements, setMovements, user, notify }) {
+function ProductsPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("");
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "view" | "move"
@@ -420,6 +422,14 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     setMovements(ms => [mapMovement(mvData), ...ms]);
     notify(`${moveForm.type} işlemi kaydedildi`);
     setModal(null);
+  };
+
+  const deleteProduct = async (p) => {
+    if (!window.confirm(`"${p.name}" ürününü silmek istediğinize emin misiniz? Stok hareketleri korunacak.`)) return;
+    const { error } = await supabase.from("products").delete().eq("id", p.id);
+    if (error) { notify("Ürün silinemedi: " + error.message, "error"); return; }
+    setProducts(prev => prev.filter(x => x.id !== p.id));
+    notify("Ürün silindi");
   };
 
   const exportCSV = () => {
@@ -538,7 +548,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "10px 14px", color: "#94a3b8", fontSize: 14, outline: "none" }}>
           <option value="">Tüm Kategoriler</option>
-          {SAMPLE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
@@ -574,6 +584,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                     {canEdit && <>
                       <button onClick={() => openMove(p)} style={{ background: "rgba(59,130,246,0.15)", border: "none", borderRadius: 7, padding: "6px 8px", color: "#60a5fa", cursor: "pointer" }}><Icon name="movements" size={14} /></button>
                       <button onClick={() => openEdit(p)} style={{ background: "rgba(139,92,246,0.15)", border: "none", borderRadius: 7, padding: "6px 8px", color: "#a78bfa", cursor: "pointer" }}><Icon name="edit" size={14} /></button>
+                      <button onClick={() => deleteProduct(p)} style={{ background: "rgba(239,68,68,0.12)", border: "none", borderRadius: 7, padding: "6px 8px", color: "#f87171", cursor: "pointer" }}><Icon name="x" size={14} /></button>
                     </>}
                   </div>
                 </td>
@@ -592,8 +603,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
             <Field label="Ürün Adı *" field="name" span />
             <Field label="SKU / Stok Kodu *" field="sku" />
             <Field label="Barkod (EAN)" field="barcode" />
-            <Field label="Kategori" field="category" options={SAMPLE_CATEGORIES} />
-            <Field label="Marka" field="brand" options={SAMPLE_BRANDS} />
+            <Field label="Kategori" field="category" options={categories} />
+            <Field label="Marka" field="brand" options={brands} />
             <Field label="Varyant (renk, ölçü vb.)" field="variant" />
             <Field label="Başlangıç Stoku" field="stock" type="number" />
             <Field label="Minimum Stok Seviyesi" field="minStock" type="number" />
@@ -784,7 +795,7 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
 }
 
 // ─── COUNTING PAGE ────────────────────────────────────────────────────────────
-function CountingPage({ products, setProducts, movements, setMovements, user, notify }) {
+function CountingPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
   const [phase, setPhase] = useState("setup"); // setup | counting | results
   const [filter, setFilter] = useState({ category: "", brand: "" });
   const [countList, setCountList] = useState({}); // { productId: count }
@@ -862,14 +873,14 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
               <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Kategori Filtresi</label>
               <select value={filter.category} onChange={e => setFilter(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }}>
                 <option value="">Tümü</option>
-                {SAMPLE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                {categories.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
             <div>
               <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Marka Filtresi</label>
               <select value={filter.brand} onChange={e => setFilter(f => ({ ...f, brand: e.target.value }))} style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }}>
                 <option value="">Tümü</option>
-                {SAMPLE_BRANDS.map(b => <option key={b}>{b}</option>)}
+                {brands.map(b => <option key={b}>{b}</option>)}
               </select>
             </div>
           </div>
@@ -1200,8 +1211,51 @@ function ReportsPage({ products, movements, criticalProducts }) {
   );
 }
 
+// ─── LIST MANAGER ─────────────────────────────────────────────────────────────
+function ListManager({ title, items, onSave, color }) {
+  const [list, setList] = useState([...items]);
+  const [newItem, setNewItem] = useState("");
+
+  const add = () => {
+    const v = newItem.trim();
+    if (!v) return;
+    if (list.includes(v)) return;
+    const updated = [...list, v];
+    setList(updated);
+    onSave(updated);
+    setNewItem("");
+  };
+
+  const remove = (item) => {
+    const updated = list.filter(i => i !== item);
+    setList(updated);
+    onSave(updated);
+  };
+
+  return (
+    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 20 }}>
+      <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#e2e8f0" }}>{title}</h3>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && add()}
+          placeholder={`Yeni ${title.slice(0, -2).toLowerCase()} ekle...`}
+          style={{ flex: 1, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", color: "#f1f5f9", fontSize: 13, outline: "none" }} />
+        <button onClick={add} style={{ background: `${color}20`, border: `1px solid ${color}40`, borderRadius: 8, padding: "8px 12px", color: color, cursor: "pointer", fontWeight: 600, fontSize: 18 }}>+</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+        {list.map(item => (
+          <div key={item} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "7px 12px" }}>
+            <span style={{ color: "#e2e8f0", fontSize: 13 }}>{item}</span>
+            <button onClick={() => remove(item)} style={{ background: "rgba(239,68,68,0.12)", border: "none", borderRadius: 6, padding: "3px 7px", color: "#f87171", cursor: "pointer", fontSize: 13 }}>✕</button>
+          </div>
+        ))}
+        {list.length === 0 && <div style={{ color: "#475569", fontSize: 13, textAlign: "center", padding: "20px 0" }}>Henüz kayıt yok</div>}
+      </div>
+    </div>
+  );
+}
+
 // ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
-function SettingsPage({ user, setUser, appUsers, setAppUsers, notify }) {
+function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories, setCategories, brands, setBrands }) {
   const isAdmin = user.role === "admin";
   const [tab, setTab] = useState("password");
   const [pwForm, setPwForm] = useState({ current: "", newPw: "", confirm: "" });
@@ -1262,7 +1316,7 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-        {[["password", "Şifre Değiştir"], ...(isAdmin ? [["users", "Kullanıcı Yönetimi"]] : [])].map(([id, label]) => (
+        {[["password", "Şifre Değiştir"], ...(isAdmin ? [["users", "Kullanıcı Yönetimi"], ["lists", "Kategori & Marka"]] : [])].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${tab === id ? "#3b82f6" : "rgba(255,255,255,0.08)"}`, background: tab === id ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.03)", color: tab === id ? "#60a5fa" : "#64748b", cursor: "pointer", fontSize: 14, fontWeight: tab === id ? 600 : 400 }}>
             {label}
@@ -1339,7 +1393,14 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify }) {
         </div>
       )}
 
-      {userModal && (
+      {tab === "lists" && isAdmin && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, maxWidth: 700 }}>
+          <ListManager title="Kategoriler" items={categories} onSave={(items) => { setCategories(items); localStorage.setItem("stokpro_cats", JSON.stringify(items)); }} color="#3b82f6" />
+          <ListManager title="Markalar" items={brands} onSave={(items) => { setBrands(items); localStorage.setItem("stokpro_brands", JSON.stringify(items)); }} color="#8b5cf6" />
+        </div>
+      )}
+
+            {userModal && (
         <Modal title={userModal === "add" ? "Yeni Kullanıcı Ekle" : "Kullanıcıyı Düzenle"} onClose={() => setUserModal(null)}
           footer={<><button onClick={() => setUserModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={saveUser} style={btnStyle("primary")}>Kaydet</button></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
