@@ -114,12 +114,7 @@ function LoginScreen({ onLogin }) {
             Giriş Yap
           </button>
         </div>
-        <div style={{ marginTop: 24, padding: "16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
-          <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 8px", fontFamily: "'Space Mono', monospace" }}>Demo Hesaplar:</p>
-          <p style={{ color: "#94a3b8", fontSize: 12, margin: "2px 0", fontFamily: "'Space Mono', monospace" }}>admin / admin123 → Tam Yetkili</p>
-          <p style={{ color: "#94a3b8", fontSize: 12, margin: "2px 0", fontFamily: "'Space Mono', monospace" }}>depo1 / depo123 → Depo Personeli</p>
-          <p style={{ color: "#94a3b8", fontSize: 12, margin: "2px 0", fontFamily: "'Space Mono', monospace" }}>rapor / rapor123 → Sadece Görüntüleme</p>
-        </div>
+
       </div>
     </div>
   );
@@ -132,6 +127,7 @@ export default function App() {
   const [products, setProducts] = useState(INITIAL_PRODUCTS);
   const [movements, setMovements] = useState(INITIAL_MOVEMENTS);
   const [notification, setNotification] = useState(null);
+  const [appUsers, setAppUsers] = useState(USERS);
 
   const notify = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -148,6 +144,7 @@ export default function App() {
     movements: <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />,
     counting: <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} />,
     reports: <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />,
+    settings: <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} />,
   };
 
   const navItems = [
@@ -156,6 +153,7 @@ export default function App() {
     { id: "movements", label: "Hareketler", icon: "movements" },
     { id: "counting", label: "Sayım", icon: "scan" },
     { id: "reports", label: "Raporlar", icon: "reports" },
+    { id: "settings", label: "Ayarlar", icon: "settings" },
   ];
 
   return (
@@ -1127,6 +1125,165 @@ function ReportsPage({ products, movements, criticalProducts }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
+function SettingsPage({ user, setUser, appUsers, setAppUsers, notify }) {
+  const isAdmin = user.role === "admin";
+  const [tab, setTab] = useState("password");
+  const [pwForm, setPwForm] = useState({ current: "", newPw: "", confirm: "" });
+  const [userModal, setUserModal] = useState(null); // null | "add" | "edit"
+  const [editTarget, setEditTarget] = useState(null);
+  const [uForm, setUForm] = useState({ name: "", username: "", password: "", role: "user" });
+
+  const changePassword = () => {
+    if (!pwForm.current || !pwForm.newPw || !pwForm.confirm) { notify("Tüm alanları doldurun", "error"); return; }
+    if (pwForm.current !== user.password) { notify("Mevcut şifre hatalı", "error"); return; }
+    if (pwForm.newPw !== pwForm.confirm) { notify("Yeni şifreler eşleşmiyor", "error"); return; }
+    if (pwForm.newPw.length < 6) { notify("Şifre en az 6 karakter olmalı", "error"); return; }
+    setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, password: pwForm.newPw } : u));
+    setUser(u => ({ ...u, password: pwForm.newPw }));
+    setPwForm({ current: "", newPw: "", confirm: "" });
+    notify("Şifre başarıyla güncellendi");
+  };
+
+  const saveUser = () => {
+    if (!uForm.name || !uForm.username || !uForm.password) { notify("Ad, kullanıcı adı ve şifre zorunludur", "error"); return; }
+    if (uForm.password.length < 6) { notify("Şifre en az 6 karakter olmalı", "error"); return; }
+    if (userModal === "add") {
+      const exists = appUsers.find(u => u.username === uForm.username);
+      if (exists) { notify("Bu kullanıcı adı zaten kullanılıyor", "error"); return; }
+      setAppUsers(prev => [...prev, { ...uForm, id: generateId() }]);
+      notify("Kullanıcı eklendi");
+    } else {
+      setAppUsers(prev => prev.map(u => u.id === editTarget.id ? { ...u, ...uForm } : u));
+      if (editTarget.id === user.id) setUser(u => ({ ...u, ...uForm }));
+      notify("Kullanıcı güncellendi");
+    }
+    setUserModal(null);
+  };
+
+  const deleteUser = (u) => {
+    if (u.id === user.id) { notify("Kendi hesabınızı silemezsiniz", "error"); return; }
+    setAppUsers(prev => prev.filter(p => p.id !== u.id));
+    notify("Kullanıcı silindi");
+  };
+
+  const roleLabel = (r) => r === "admin" ? "Yönetici" : r === "user" ? "Personel" : "Görüntüleyici";
+  const roleColor = (r) => r === "admin" ? "#8b5cf6" : r === "user" ? "#3b82f6" : "#64748b";
+
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Ayarlar</h1>
+        <p style={{ color: "#475569", margin: "4px 0 0", fontSize: 13 }}>Hesap ve kullanıcı yönetimi</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+        {[["password", "Şifre Değiştir"], ...(isAdmin ? [["users", "Kullanıcı Yönetimi"]] : [])].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${tab === id ? "#3b82f6" : "rgba(255,255,255,0.08)"}`, background: tab === id ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.03)", color: tab === id ? "#60a5fa" : "#64748b", cursor: "pointer", fontSize: 14, fontWeight: tab === id ? 600 : 400 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "password" && (
+        <div style={{ maxWidth: 440 }}>
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 28 }}>
+            <h3 style={{ margin: "0 0 20px", fontSize: 15 }}>Şifre Değiştir</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {[["Mevcut Şifre", "current"], ["Yeni Şifre", "newPw"], ["Yeni Şifre (Tekrar)", "confirm"]].map(([label, field]) => (
+                <div key={field}>
+                  <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>{label}</label>
+                  <input type="password" value={pwForm[field]} onChange={e => setPwForm(f => ({ ...f, [field]: e.target.value }))}
+                    style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+                </div>
+              ))}
+              <button onClick={changePassword} className="btn-hover"
+                style={{ padding: "12px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, marginTop: 4 }}>
+                Şifreyi Güncelle
+              </button>
+            </div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "14px 18px", marginTop: 16 }}>
+            <div style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Hesap Bilgileri</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[["Ad Soyad", user.name], ["Kullanıcı Adı", user.username], ["Rol", roleLabel(user.role)]].map(([k, v]) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#475569", fontSize: 13 }}>{k}</span>
+                  <span style={{ color: "#e2e8f0", fontSize: 13, fontWeight: 500 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "users" && isAdmin && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 15 }}>Kullanıcılar ({appUsers.length})</h3>
+            <button onClick={() => { setUForm({ name: "", username: "", password: "", role: "user" }); setUserModal("add"); }} className="btn-hover"
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+              <Icon name="plus" size={15} /> Yeni Kullanıcı
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {appUsers.map(u => (
+              <div key={u.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: `${roleColor(u.role)}20`, display: "flex", alignItems: "center", justifyContent: "center", color: roleColor(u.role), fontSize: 16, fontWeight: 700 }}>
+                    {u.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, color: "#e2e8f0", fontSize: 14 }}>{u.name}</div>
+                    <div style={{ color: "#475569", fontSize: 12, marginTop: 2 }}>@{u.username}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ background: `${roleColor(u.role)}18`, color: roleColor(u.role), borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 500 }}>{roleLabel(u.role)}</span>
+                  {u.id === user.id && <span style={{ color: "#475569", fontSize: 11 }}>(siz)</span>}
+                  <button onClick={() => { setUForm({ name: u.name, username: u.username, password: u.password, role: u.role }); setEditTarget(u); setUserModal("edit"); }}
+                    style={{ background: "rgba(139,92,246,0.15)", border: "none", borderRadius: 7, padding: "7px 9px", color: "#a78bfa", cursor: "pointer" }}><Icon name="edit" size={14} /></button>
+                  {u.id !== user.id && (
+                    <button onClick={() => deleteUser(u)}
+                      style={{ background: "rgba(239,68,68,0.12)", border: "none", borderRadius: 7, padding: "7px 9px", color: "#f87171", cursor: "pointer" }}><Icon name="x" size={14} /></button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {userModal && (
+        <Modal title={userModal === "add" ? "Yeni Kullanıcı Ekle" : "Kullanıcıyı Düzenle"} onClose={() => setUserModal(null)}
+          footer={<><button onClick={() => setUserModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={saveUser} style={btnStyle("primary")}>Kaydet</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[["Ad Soyad", "name", "text"], ["Kullanıcı Adı", "username", "text"], ["Şifre", "password", "password"]].map(([label, field, type]) => (
+              <div key={field}>
+                <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>{label}</label>
+                <input type={type} value={uForm[field]} onChange={e => setUForm(f => ({ ...f, [field]: e.target.value }))}
+                  style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+              </div>
+            ))}
+            <div>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Rol</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[["admin", "Yönetici"], ["user", "Personel"], ["viewer", "Görüntüleyici"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setUForm(f => ({ ...f, role: val }))}
+                    style={{ flex: 1, padding: "9px", borderRadius: 8, border: `1px solid ${uForm.role === val ? roleColor(val) : "rgba(255,255,255,0.1)"}`, background: uForm.role === val ? `${roleColor(val)}18` : "transparent", color: uForm.role === val ? roleColor(val) : "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
