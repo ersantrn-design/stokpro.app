@@ -154,6 +154,15 @@ export default function App() {
 
   // Load data from Supabase after login
   useEffect(() => {
+    // Load SheetJS for Excel support
+    if (!window.XLSX) {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     const loadData = async () => {
       setLoading(true);
@@ -203,6 +212,7 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a", fontFamily: "'DM Sans', sans-serif", color: "#f1f5f9" }}>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Mono:wght@700&display=swap');
         * { box-sizing: border-box; }
@@ -484,7 +494,68 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   };
 
   const downloadTemplate = () => {
-    downloadCSV([{ "Ürün Adı": "Örnek Ürün", SKU: "URN-001", Barkod: "1234567890", Kategori: "Elektronik", Marka: "Marka", Varyant: "Renk/Beden", "Mevcut Stok": 10, "Min Stok": 5, Açıklama: "Opsiyonel" }], "urun-sablonu.csv");
+    const XLSX = window.XLSX;
+    if (!XLSX) { notify("Şablon indirilemedi, lütfen sayfayı yenileyin", "error"); return; }
+    const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Açıklama"];
+    const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, "Açıklama buraya"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, ""]];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+    ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 30].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ürünler");
+    XLSX.writeFile(wb, "urun-sablonu.xlsx");
+  };
+
+  const handleExcelImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const XLSX = window.XLSX;
+      if (!XLSX) { notify("Excel kütüphanesi yüklenemedi, lütfen sayfayı yenileyin", "error"); return; }
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      if (rows.length < 2) { notify("Excel dosyası boş", "error"); return; }
+      const headers = rows[0].map(h => String(h).trim());
+      const colMap = {
+        name: headers.findIndex(h => h.includes("Ürün") || h.toLowerCase() === "name"),
+        sku: headers.findIndex(h => h.includes("SKU") || h.toLowerCase() === "sku"),
+        barcode: headers.findIndex(h => h.includes("Barkod") || h.toLowerCase() === "barcode"),
+        category: headers.findIndex(h => h.includes("Kategori") || h.toLowerCase() === "category"),
+        brand: headers.findIndex(h => h.includes("Marka") || h.toLowerCase() === "brand"),
+        variant: headers.findIndex(h => h.includes("Varyant") || h.toLowerCase() === "variant"),
+        stock: headers.findIndex(h => h.includes("Mevcut") || h.toLowerCase() === "stock"),
+        minStock: headers.findIndex(h => h.includes("Min") || h.toLowerCase() === "min"),
+        description: headers.findIndex(h => h.includes("Açıklama") || h.toLowerCase() === "description"),
+      };
+      if (colMap.name === -1 || colMap.sku === -1) { notify("'Ürün Adı' ve 'SKU' sütunları zorunludur", "error"); return; }
+      let added = 0; let updated = 0; let errors = 0;
+      const toInsert = []; const toUpdate = [];
+      rows.slice(1).forEach(row => {
+        const name = String(row[colMap.name] || "").trim();
+        const sku = String(row[colMap.sku] || "").trim();
+        if (!name || !sku || name.includes("Örnek")) { if (name.includes("Örnek")) return; errors++; return; }
+        const existing = products.find(p => p.sku === sku);
+        const productData = {
+          name, sku,
+          barcode: colMap.barcode >= 0 ? String(row[colMap.barcode] || "") : "",
+          category: colMap.category >= 0 ? String(row[colMap.category] || "") : "",
+          brand: colMap.brand >= 0 ? String(row[colMap.brand] || "") : "",
+          variant: colMap.variant >= 0 ? String(row[colMap.variant] || "") : "",
+          stock: colMap.stock >= 0 ? (parseInt(row[colMap.stock]) || 0) : 0,
+          min_stock: colMap.minStock >= 0 ? (parseInt(row[colMap.minStock]) || 0) : 0,
+          description: colMap.description >= 0 ? String(row[colMap.description] || "") : "",
+        };
+        if (existing) { toUpdate.push({ ...productData, id: existing.id }); updated++; }
+        else { toInsert.push(productData); added++; }
+      });
+      if (toInsert.length > 0) await supabase.from("products").insert(toInsert);
+      for (const p of toUpdate) { await supabase.from("products").update(p).eq("id", p.id); }
+      const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+      if (fresh) setProducts(fresh.map(mapProduct));
+      notify(`Excel yüklendi: ${added} yeni ürün eklendi, ${updated} güncellendi${errors > 0 ? ", " + errors + " satır atlandı" : ""}`);
+    } catch (err) { notify("Excel okunamadı: " + err.message, "error"); }
+    e.target.value = "";
   };
 
   const handleCSVImport = async (e) => {
@@ -589,8 +660,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 <Icon name="download" size={15} /> Şablon İndir
               </button>
               <label className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, color: "#4ade80", cursor: "pointer", fontSize: 14, fontWeight: 500, transition: "all 0.15s" }}>
-                <Icon name="upload" size={15} /> CSV Yükle
-                <input type="file" accept=".csv" onChange={handleCSVImport} style={{ display: "none" }} />
+                <Icon name="upload" size={15} /> Excel Yükle
+                <input type="file" accept=".xlsx,.xls" onChange={handleExcelImport} style={{ display: "none" }} />
               </label>
               <button onClick={openAdd} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
                 <Icon name="plus" size={15} /> Yeni Ürün
