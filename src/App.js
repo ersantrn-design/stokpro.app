@@ -381,8 +381,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target.result;
-      const lines = text.split("
-").map(l => l.trim()).filter(Boolean);
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       if (lines.length < 2) { notify("CSV dosyası boş veya hatalı", "error"); return; }
       const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim());
       const colMap = {
