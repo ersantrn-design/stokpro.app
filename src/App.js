@@ -373,6 +373,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   const [moveForm, setMoveForm] = useState({ type: "Giriş", quantity: "", note: "" });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkMoveForm, setBulkMoveForm] = useState({ type: "Giriş", quantity: "", note: "" });
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const canEdit = user.role !== "viewer";
 
@@ -427,7 +428,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   };
 
   const deleteProduct = async (p) => {
-    if (!window.confirm(`"${p.name}" ürününü silmek istediğinize emin misiniz? Stok hareketleri korunacak.`)) return;
+    if (!window.confirm(`"${p.name}" ürününü silmek istediğinize emin misiniz?`)) return;
     const { error } = await supabase.from("products").delete().eq("id", p.id);
     if (error) { notify("Ürün silinemedi: " + error.message, "error"); return; }
     setProducts(prev => prev.filter(x => x.id !== p.id));
@@ -448,13 +449,12 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   };
 
   const bulkDelete = async () => {
-    if (!selectedIds.size) return;
-    if (!window.confirm(`${selectedIds.size} ürünü silmek istediğinize emin misiniz?`)) return;
     const ids = [...selectedIds];
     const { error } = await supabase.from("products").delete().in("id", ids);
     if (error) { notify("Toplu silme başarısız", "error"); return; }
     setProducts(prev => prev.filter(p => !ids.includes(p.id)));
     setSelectedIds(new Set());
+    setConfirmDelete(false);
     notify(`${ids.length} ürün silindi`);
   };
 
@@ -574,7 +574,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
                 <Icon name="movements" size={15} /> Toplu Stok
               </button>
-              <button onClick={bulkDelete} className="btn-hover"
+              <button onClick={() => setConfirmDelete(true)} className="btn-hover"
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10, color: "#f87171", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
                 <Icon name="x" size={15} /> Seçilenleri Sil ({selectedIds.size})
               </button>
@@ -662,7 +662,24 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: "48px 0", color: "#475569" }}>Sonuç bulunamadı</div>}
       </div>
 
-            {/* Bulk Move Modal */}
+            {/* Confirm Delete Modal */}
+      {confirmDelete && (
+        <Modal title="Ürünleri Sil" onClose={() => setConfirmDelete(false)}
+          footer={<>
+            <button onClick={() => setConfirmDelete(false)} style={btnStyle("ghost")}>İptal</button>
+            <button onClick={bulkDelete} style={{ ...btnStyle("primary"), background: "linear-gradient(135deg, #ef4444, #dc2626)" }}>Evet, Sil</button>
+          </>}>
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🗑️</div>
+            <p style={{ color: "#e2e8f0", fontSize: 15, margin: "0 0 8px" }}>
+              <strong>{selectedIds.size} ürün</strong> silinecek.
+            </p>
+            <p style={{ color: "#64748b", fontSize: 13, margin: 0 }}>Bu işlem geri alınamaz. Stok hareketleri korunacak.</p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Bulk Move Modal */}
       {modal === "bulkMove" && (
         <Modal title={`Toplu Stok İşlemi (${selectedIds.size} ürün)`} onClose={() => setModal(null)}
           footer={<><button onClick={() => setModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={bulkMove} style={btnStyle("primary")}>Uygula</button></>}>
