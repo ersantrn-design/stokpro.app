@@ -799,7 +799,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
               <th style={{ padding: "12px 12px", width: 40 }}>
                 <input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: "pointer", accentColor: "#3b82f6", width: 15, height: 15 }} />
               </th>
-              {["Ürün Adı", "SKU", "Kategori", "Marka", "Stok", "Min", "Durum", ""].map(h => (
+              {["Ürün Adı", "SKU", "Kategori", "Marka", "Maliyet", "Satış", "Marj", "Stok", "Min", "Durum", ""].map(h => (
                 <th key={h} style={{ padding: "12px 16px", textAlign: "left", color: "#475569", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
               ))}
             </tr>
