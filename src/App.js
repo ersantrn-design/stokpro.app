@@ -565,15 +565,12 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         if (skuMap[sku]) { toUpdate.push({ ...productData, id: skuMap[sku] }); updated++; }
         else { toInsert.push(productData); added++; }
       });
-      // Insert in batches of 50
-      for (let i = 0; i < toInsert.length; i += 50) {
-        const batch = toInsert.slice(i, i + 50);
-        const { error: insErr } = await supabase.from("products").insert(batch);
-        if (insErr) { notify("Ürünler eklenemedi: " + insErr.message, "error"); return; }
-      }
-      for (const p of toUpdate) {
-        const { id, ...upd } = p;
-        await supabase.from("products").update(upd).eq("id", id);
+      // Upsert: insert or update based on SKU
+      const allRows = [...toInsert, ...toUpdate.map(({ id, ...rest }) => rest)];
+      for (let i = 0; i < allRows.length; i += 50) {
+        const batch = allRows.slice(i, i + 50);
+        const { error: upsErr } = await supabase.from("products").upsert(batch, { onConflict: "sku", ignoreDuplicates: false });
+        if (upsErr) { notify("Yükleme hatası: " + upsErr.message, "error"); return; }
       }
       const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
       if (fresh) setProducts(fresh.map(mapProduct));
