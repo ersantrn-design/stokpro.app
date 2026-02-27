@@ -195,7 +195,6 @@ function LoginScreen({ onLogin }) {
     </div>
   );
 }
-}
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
