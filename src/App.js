@@ -729,8 +729,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           )}
           {canEdit && (
             <>
-              <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-                <Icon name="download" size={15} /> CSV İndir
+              <button onClick={exportExcelProducts} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+                <Icon name="download" size={15} /> Excel İndir
               </button>
               <button onClick={downloadTemplate} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
                 <Icon name="download" size={15} /> Şablon İndir
@@ -1006,7 +1006,7 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
     setModal(false);
   };
 
-  const exportCSV = () => downloadCSV(filtered.map(m => ({ Tarih: formatDate(m.createdAt), Ürün: m.productName, Tür: m.type, Miktar: m.quantity, "Önceki Stok": m.prevStock, "Sonraki Stok": m.nextStock, Kullanıcı: m.user, Açıklama: m.note })), "hareketler.csv");
+  const exportCSV = () => exportExcel(filtered.map(m => ({ Tarih: formatDate(m.createdAt), "Ürün Adı": m.productName, Tür: m.type, Miktar: m.quantity, "Önceki Stok": m.prevStock, "Sonraki Stok": m.nextStock, Kullanıcı: m.user, Not: m.note })), "hareketler.xlsx");
 
   const typeColor = (t) => t === "Giriş" ? "#22c55e" : t === "Çıkış" ? "#f87171" : "#fbbf24";
 
@@ -1019,7 +1019,7 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
         </div>
         {canEdit && (
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={exportExcelProducts} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+            <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
               <Icon name="download" size={15} /> Excel İndir
             </button>
             <button onClick={() => { setForm({ productId: "", type: "Giriş", quantity: "", note: "" }); setModal(true); }} className="btn-hover"
