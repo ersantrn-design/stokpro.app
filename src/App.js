@@ -522,17 +522,33 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     notify(`${ids.length} ürüne toplu ${bulkMoveForm.type} yapıldı`);
   };
 
-  const exportCSV = () => {
-    downloadCSV(products.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode, Kategori: p.category, Marka: p.brand, Varyant: p.variant, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Açıklama: p.description || "" })), "urunler.csv");
-  };
+  const exportExcelProducts = () => exportExcel(products.map(p => {
+    const vatRate = p.vatRate || 20;
+    const saleExVat = p.salePrice ? (p.salePrice / (1 + vatRate / 100)) : 0;
+    const profit = saleExVat && p.costPrice ? saleExVat - p.costPrice : null;
+    const margin = profit !== null && saleExVat > 0 ? (profit / saleExVat * 100).toFixed(1) + "%" : "-";
+    return {
+      "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode,
+      Kategori: p.category, Marka: p.brand, Varyant: p.variant,
+      "Mevcut Stok": p.stock, "Min Stok": p.minStock,
+      "Maliyet Fiyatı (₺)": p.costPrice || "",
+      "Satış Fiyatı KDV Dahil (₺)": p.salePrice || "",
+      "KDV Oranı (%)": p.vatRate || 20,
+      "Satış Fiyatı KDV Hariç (₺)": saleExVat ? saleExVat.toFixed(2) : "",
+      "Kâr/Adet (₺)": profit !== null ? profit.toFixed(2) : "",
+      "Kâr Marjı": margin,
+      "Toplam Stok Değeri (₺)": p.costPrice ? (p.stock * p.costPrice).toFixed(2) : "",
+      Açıklama: p.description || "",
+    };
+  }), "urunler.xlsx");
 
   const downloadTemplate = async () => {
     try {
       const XLSX = await loadXLSX();
-      const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Açıklama"];
-      const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, "Açıklama buraya"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, ""]];
+      const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Maliyet Fiyatı", "Satış Fiyatı (KDV Dahil)", "KDV Oranı %", "Açıklama"];
+      const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, 100, 250, 20, "Açıklama"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, 200, 450, 20, ""]];
       const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
-      ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 30].map(w => ({ wch: w }));
+      ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 18, 22, 12, 30].map(w => ({ wch: w }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Ürünler");
       XLSX.writeFile(wb, "urun-sablonu.xlsx");
@@ -570,6 +586,9 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         variant: headers.findIndex(h => h.includes("Varyant") || h.toLowerCase() === "variant"),
         stock: headers.findIndex(h => h.includes("Mevcut") || h.toLowerCase() === "stock"),
         minStock: headers.findIndex(h => h.includes("Min") || h.toLowerCase() === "min"),
+        costPrice: headers.findIndex(h => h.includes("Maliyet") || h.toLowerCase().includes("cost")),
+        salePrice: headers.findIndex(h => h.includes("Satış") || h.toLowerCase().includes("sale")),
+        vatRate: headers.findIndex(h => h.includes("KDV") || h.toLowerCase().includes("vat")),
         description: headers.findIndex(h => h.includes("Açıklama") || h.toLowerCase() === "description"),
       };
       if (colMap.name === -1 || colMap.sku === -1) { notify("'Ürün Adı' ve 'SKU' sütunları zorunludur", "error"); return; }
@@ -593,6 +612,9 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           variant: colMap.variant >= 0 ? String(row[colMap.variant] || "") : "",
           stock: colMap.stock >= 0 ? (parseInt(row[colMap.stock]) || 0) : 0,
           min_stock: colMap.minStock >= 0 ? (parseInt(row[colMap.minStock]) || 0) : 0,
+          cost_price: colMap.costPrice >= 0 ? (parseFloat(row[colMap.costPrice]) || 0) : 0,
+          sale_price: colMap.salePrice >= 0 ? (parseFloat(row[colMap.salePrice]) || 0) : 0,
+          vat_rate: colMap.vatRate >= 0 ? (parseInt(row[colMap.vatRate]) || 20) : 20,
           description: colMap.description >= 0 ? String(row[colMap.description] || "") : "",
         };
         if (skuMap[sku]) { toUpdate.push({ ...productData, id: skuMap[sku] }); updated++; }
@@ -997,8 +1019,8 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
         </div>
         {canEdit && (
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-              <Icon name="download" size={15} /> CSV İndir
+            <button onClick={exportExcelProducts} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
+              <Icon name="download" size={15} /> Excel İndir
             </button>
             <button onClick={() => { setForm({ productId: "", type: "Giriş", quantity: "", note: "" }); setModal(true); }} className="btn-hover"
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
@@ -1263,7 +1285,7 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => setPhase("counting")} style={btnStyle("ghost")}>← Geri Dön</button>
-          <button onClick={exportDiffs} className="btn-hover" style={{ ...btnStyle("ghost"), display: "flex", alignItems: "center", gap: 6 }}><Icon name="download" size={14} /> CSV İndir</button>
+          <button onClick={exportDiffs} className="btn-hover" style={{ ...btnStyle("ghost"), display: "flex", alignItems: "center", gap: 6 }}><Icon name="download" size={14} /> Excel İndir</button>
           {canEdit && hasDiffs && (
             <button onClick={applyDiffs} className="btn-hover" style={{ ...btnStyle("primary"), display: "flex", alignItems: "center", gap: 6 }}>
               <Icon name="check" size={14} /> Farkları Stoğa Yansıt
@@ -1359,9 +1381,9 @@ function ReportsPage({ products, movements, criticalProducts }) {
   });
   const topProducts = Object.values(productActivity).sort((a, b) => (b.in + b.out) - (a.in + a.out)).slice(0, 8);
 
-  const exportStockSummary = () => downloadCSV(products.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Kategori: p.category, Marka: p.brand, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Durum: p.stock <= p.minStock ? "KRİTİK" : "Normal" })), "stok-ozet.csv");
-  const exportMovements = () => downloadCSV(filtered.map(m => ({ Tarih: formatDate(m.createdAt), Ürün: m.productName, Tür: m.type, Miktar: m.quantity, Kullanıcı: m.user, Açıklama: m.note })), "hareket-raporu.csv");
-  const exportCritical = () => downloadCSV(criticalProducts.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Fark: p.stock - p.minStock })), "kritik-stok.csv");
+  const exportStockSummary = () => exportExcel(products.map(p => { const saleExVat = p.salePrice ? (p.salePrice / (1 + (p.vatRate || 20) / 100)) : 0; const profit = saleExVat && p.costPrice ? saleExVat - p.costPrice : null; return { "Ürün Adı": p.name, SKU: p.sku, Kategori: p.category, Marka: p.brand, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Durum: p.stock <= p.minStock ? "KRİTİK" : "Normal", "Maliyet (₺)": p.costPrice || "", "Satış KDV Dahil (₺)": p.salePrice || "", "KDV %": p.vatRate || "", "Kâr Marjı": profit !== null && saleExVat > 0 ? (profit / saleExVat * 100).toFixed(1) + "%" : "", "Stok Değeri (₺)": p.costPrice ? (p.stock * p.costPrice).toFixed(2) : "" }; }), "stok-ozet.xlsx");
+  const exportMovements = () => exportExcel(filtered.map(m => ({ Tarih: formatDate(m.createdAt), "Ürün Adı": m.productName, "Tür": m.type, "Miktar": m.quantity, "Önceki Stok": m.prevStock, "Sonraki Stok": m.nextStock, Kullanıcı: m.user, Not: m.note })), "hareket-raporu.xlsx");
+  const exportCritical = () => exportExcel(criticalProducts.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Kategori: p.category, Marka: p.brand, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Fark: p.stock - p.minStock, Durum: p.stock === 0 ? "Tükendi" : "Kritik" })), "kritik-stok.xlsx");
 
   const reports = [
     { id: "stock-summary", label: "Stok Özeti", icon: "products" },
@@ -1398,7 +1420,7 @@ function ReportsPage({ products, movements, criticalProducts }) {
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Güncel Stok Durumu ({products.length} ürün)</h3>
-            <button onClick={exportStockSummary} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> CSV İndir</button>
+            <button onClick={exportStockSummary} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> Excel İndir</button>
           </div>
           <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1428,7 +1450,7 @@ function ReportsPage({ products, movements, criticalProducts }) {
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Hareket Raporu ({filtered.length} kayıt)</h3>
-            <button onClick={exportMovements} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> CSV İndir</button>
+            <button onClick={exportMovements} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> Excel İndir</button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
             {Object.entries(byType).map(([type, total]) => (
@@ -1462,7 +1484,7 @@ function ReportsPage({ products, movements, criticalProducts }) {
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Kritik Stok Uyarıları ({criticalProducts.length} ürün)</h3>
-            <button onClick={exportCritical} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> CSV İndir</button>
+            <button onClick={exportCritical} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 6, ...btnStyle("ghost"), padding: "8px 14px" }}><Icon name="download" size={14} /> Excel İndir</button>
           </div>
           {criticalProducts.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 0", color: "#22c55e" }}>
@@ -1516,7 +1538,19 @@ function ReportsPage({ products, movements, criticalProducts }) {
         </div>
       )}
 
-      {activeReport === "kar-analizi" && (
+      {activeReport === "kar-analizi" && (() => {
+        const exportProfit = () => exportExcel(profitData.map(p => ({
+          "Ürün Adı": p.name, SKU: p.sku, Kategori: p.category, Marka: p.brand,
+          "Mevcut Stok": p.stock, "Maliyet (₺)": Number(p.costPrice).toFixed(2),
+          "Satış KDV Dahil (₺)": Number(p.salePrice).toFixed(2),
+          "KDV %": p.vatRate || 20,
+          "Satış KDV Hariç (₺)": p.saleExVat.toFixed(2),
+          "Kâr/Adet (₺)": p.profitPerUnit.toFixed(2),
+          "Kâr Marjı %": p.margin.toFixed(1),
+          "Toplam Kâr Pot. (₺)": p.totalProfit.toFixed(2),
+          "Stok Değeri (₺)": p.stockValue.toFixed(2),
+        })), "kar-analizi.xlsx");
+        return (
         <div>
           {productsWithPrice.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 0", color: "#475569" }}>
@@ -1543,6 +1577,9 @@ function ReportsPage({ products, movements, criticalProducts }) {
 
               {/* En kârlı ürünler (marj) */}
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                  <button onClick={exportProfit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontSize: 13 }}><Icon name="download" size={13} /> Excel İndir</button>
+                </div>
                 <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#e2e8f0" }}>En Yüksek Kâr Marjı</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {topProfitable.map((p, i) => (
@@ -1587,7 +1624,8 @@ function ReportsPage({ products, movements, criticalProducts }) {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -1825,6 +1863,25 @@ function Modal({ title, children, onClose, footer }) {
     </div>
   );
 }
+
+const exportExcel = async (data, filename) => {
+  const loadXLSX = () => new Promise((resolve, reject) => {
+    if (window.XLSX) { resolve(window.XLSX); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error("XLSX yüklenemedi"));
+    document.head.appendChild(s);
+  });
+  const XLSX = await loadXLSX();
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Veri");
+  const cols = Object.keys(data[0] || {}).map(k => ({ wch: Math.max(k.length + 4, 14) }));
+  ws["!cols"] = cols;
+  XLSX.writeFile(wb, filename);
+};
+
 
 const selectStyle = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "10px 14px", color: "#94a3b8", fontSize: 14, outline: "none" };
 
