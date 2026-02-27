@@ -137,7 +137,9 @@ function LoginScreen({ onLogin }) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { const u = localStorage.getItem("stokpro_user"); return u ? JSON.parse(u) : null; } catch { return null; }
+  });
   const [page, setPage] = useState("dashboard");
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
@@ -181,7 +183,10 @@ export default function App() {
     loadData();
   }, [user]);
 
-  if (!user) return <LoginScreen onLogin={setUser} appUsers={appUsers} setAppUsers={setAppUsers} />;
+  const handleLogin = (u) => { setUser(u); localStorage.setItem("stokpro_user", JSON.stringify(u)); };
+  const handleLogout = () => { setUser(null); localStorage.removeItem("stokpro_user"); };
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
   if (loading) return (
     <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
       <div style={{ width: 48, height: 48, border: "3px solid #1e293b", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -258,7 +263,7 @@ export default function App() {
             <div style={{ color: "#f1f5f9", fontSize: 13, fontWeight: 600 }}>{user.name}</div>
             <div style={{ color: "#475569", fontSize: 11 }}>{user.role === "admin" ? "Yönetici" : user.role === "user" ? "Personel" : "Görüntüleyici"}</div>
           </div>
-          <button className="nav-item" onClick={() => setUser(null)}
+          <button className="nav-item" onClick={handleLogout}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: "none", background: "transparent", color: "#64748b", cursor: "pointer", fontSize: 14, transition: "all 0.15s", width: "100%" }}>
             <Icon name="logout" size={16} /> Çıkış Yap
           </button>
@@ -1481,7 +1486,7 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories
     const { error } = await supabase.from("app_users").update({ password_hash: pwForm.newPw }).eq("id", user.id);
     if (error) { notify("Şifre güncellenemedi", "error"); return; }
     setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, password: pwForm.newPw } : u));
-    setUser(u => ({ ...u, password: pwForm.newPw }));
+    setUser(u => { const updated = { ...u, password: pwForm.newPw }; localStorage.setItem("stokpro_user", JSON.stringify(updated)); return updated; });
     setPwForm({ current: "", newPw: "", confirm: "" });
     notify("Şifre başarıyla güncellendi");
   };
@@ -1501,7 +1506,7 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories
       const { error } = await supabase.from("app_users").update(dbObj).eq("id", editTarget.id);
       if (error) { notify("Kullanıcı güncellenemedi", "error"); return; }
       setAppUsers(prev => prev.map(u => u.id === editTarget.id ? { ...u, ...uForm, password: uForm.password } : u));
-      if (editTarget.id === user.id) setUser(u => ({ ...u, name: uForm.name, username: uForm.username, password: uForm.password, role: uForm.role }));
+      if (editTarget.id === user.id) { const updated = { ...user, name: uForm.name, username: uForm.username, password: uForm.password, role: uForm.role }; setUser(updated); localStorage.setItem("stokpro_user", JSON.stringify(updated)); }
       notify("Kullanıcı güncellendi");
     }
     setUserModal(null);
