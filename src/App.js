@@ -540,14 +540,18 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         description: headers.findIndex(h => h.includes("Açıklama") || h.toLowerCase() === "description"),
       };
       if (colMap.name === -1 || colMap.sku === -1) { notify("'Ürün Adı' ve 'SKU' sütunları zorunludur", "error"); return; }
+      // Fetch all existing SKUs from Supabase to avoid duplicates
+      const { data: existingProds } = await supabase.from("products").select("id, sku");
+      const skuMap = {};
+      (existingProds || []).forEach(p => { skuMap[p.sku] = p.id; });
+
       let added = 0; let updated = 0; let errors = 0;
       const toInsert = []; const toUpdate = [];
       rows.slice(1).forEach(row => {
         const name = String(row[colMap.name] || "").trim();
         const sku = String(row[colMap.sku] || "").trim();
         if (!name || !sku) { errors++; return; }
-        if (name === "Örnek Ürün 1" || name === "Örnek Ürün 2") return; // skip template samples
-        const existing = products.find(p => p.sku === sku);
+        if (name === "Örnek Ürün 1" || name === "Örnek Ürün 2") return;
         const productData = {
           name, sku,
           barcode: colMap.barcode >= 0 ? String(row[colMap.barcode] || "") : "",
@@ -558,11 +562,13 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           min_stock: colMap.minStock >= 0 ? (parseInt(row[colMap.minStock]) || 0) : 0,
           description: colMap.description >= 0 ? String(row[colMap.description] || "") : "",
         };
-        if (existing) { toUpdate.push({ ...productData, id: existing.id }); updated++; }
+        if (skuMap[sku]) { toUpdate.push({ ...productData, id: skuMap[sku] }); updated++; }
         else { toInsert.push(productData); added++; }
       });
-      if (toInsert.length > 0) {
-        const { error: insErr } = await supabase.from("products").insert(toInsert);
+      // Insert in batches of 50
+      for (let i = 0; i < toInsert.length; i += 50) {
+        const batch = toInsert.slice(i, i + 50);
+        const { error: insErr } = await supabase.from("products").insert(batch);
         if (insErr) { notify("Ürünler eklenemedi: " + insErr.message, "error"); return; }
       }
       for (const p of toUpdate) {
