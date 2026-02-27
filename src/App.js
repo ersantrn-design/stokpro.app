@@ -377,6 +377,7 @@ export default function App() {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ products, movements, criticalProducts, setPage }) {
+  const [showAllCritical, setShowAllCritical] = useState(false);
   const totalStock = products.reduce((s, p) => s + p.stock, 0);
   const totalStockValue = products.reduce((s, p) => s + (p.stock * (p.costPrice || 0)), 0);
   const totalSaleValue = products.reduce((s, p) => s + (p.stock * (p.salePrice || 0)), 0);
@@ -468,19 +469,31 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
               <Icon name="check" size={32} /><div style={{ marginTop: 10, fontSize: 14 }}>Tüm stoklar yeterli seviyede</div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {criticalProducts.map(p => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#fef2f2", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#fca5a5" }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: "#7f1d1d" }}>Min: {p.minStock} · Mevcut: {p.stock}</div>
+            <div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(showAllCritical ? criticalProducts : criticalProducts.slice(0, 5)).map(p => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 2 }}>Min: {p.minStock} · Mevcut: {p.stock}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: p.stock === 0 ? "#dc2626" : "#d97706", fontWeight: 700, fontSize: 18 }}>{p.stock}</div>
+                      <div style={{ fontSize: 10, color: "#a8a29e" }}>adet</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: p.stock === 0 ? "#ef4444" : "#f97316", fontWeight: 700, fontSize: 20 }}>{p.stock}</div>
-                    <div style={{ fontSize: 10, color: "#7f1d1d" }}>adet</div>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              {criticalProducts.length > 5 && (
+                <button
+                  onClick={() => setShowAllCritical(v => !v)}
+                  style={{ marginTop: 10, width: "100%", padding: "9px", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, color: "#78716c", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all 0.12s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  onMouseEnter={e => { e.target.style.background = "#f5f5f4"; e.target.style.color = "#1c1917"; }}
+                  onMouseLeave={e => { e.target.style.background = "#fafaf9"; e.target.style.color = "#78716c"; }}
+                >
+                  {showAllCritical ? "▲ Daha az göster" : `▼ ${criticalProducts.length - 5} ürün daha göster`}
+                </button>
+              )}
             </div>
           )}
         </div>
