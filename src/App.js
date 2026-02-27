@@ -493,29 +493,40 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     downloadCSV(products.map(p => ({ "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode, Kategori: p.category, Marka: p.brand, Varyant: p.variant, "Mevcut Stok": p.stock, "Min Stok": p.minStock, Açıklama: p.description || "" })), "urunler.csv");
   };
 
-  const downloadTemplate = () => {
-    const XLSX = window.XLSX;
-    if (!XLSX) { notify("Şablon indirilemedi, lütfen sayfayı yenileyin", "error"); return; }
-    const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Açıklama"];
-    const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, "Açıklama buraya"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, ""]];
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
-    ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 30].map(w => ({ wch: w }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Ürünler");
-    XLSX.writeFile(wb, "urun-sablonu.xlsx");
+  const downloadTemplate = async () => {
+    try {
+      const XLSX = await loadXLSX();
+      const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Açıklama"];
+      const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, "Açıklama buraya"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, ""]];
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+      ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 30].map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Ürünler");
+      XLSX.writeFile(wb, "urun-sablonu.xlsx");
+    } catch (err) { notify("Şablon indirilemedi: " + err.message, "error"); }
   };
+
+  const loadXLSX = () => new Promise((resolve, reject) => {
+    if (window.XLSX) { resolve(window.XLSX); return; }
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    script.onload = () => resolve(window.XLSX);
+    script.onerror = () => reject(new Error("SheetJS yüklenemedi"));
+    document.head.appendChild(script);
+  });
 
   const handleExcelImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const XLSX = window.XLSX;
-      if (!XLSX) { notify("Excel kütüphanesi yüklenemedi, lütfen sayfayı yenileyin", "error"); return; }
+      const XLSX = await loadXLSX();
+      if (!XLSX) { notify("Excel kütüphanesi yüklenemedi", "error"); return; }
       const data = await file.arrayBuffer();
       const wb = XLSX.read(data, { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-      if (rows.length < 2) { notify("Excel dosyası boş", "error"); return; }
+      if (rows.length < 2) { notify("Excel dosyası boş veya okunamadı", "error"); return; }
+      notify(`${rows.length - 1} satır okundu, işleniyor...`);
       const headers = rows[0].map(h => String(h).trim());
       const colMap = {
         name: headers.findIndex(h => h.includes("Ürün") || h.toLowerCase() === "name"),
@@ -534,7 +545,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
       rows.slice(1).forEach(row => {
         const name = String(row[colMap.name] || "").trim();
         const sku = String(row[colMap.sku] || "").trim();
-        if (!name || !sku || name.includes("Örnek")) { if (name.includes("Örnek")) return; errors++; return; }
+        if (!name || !sku) { errors++; return; }
+        if (name === "Örnek Ürün 1" || name === "Örnek Ürün 2") return; // skip template samples
         const existing = products.find(p => p.sku === sku);
         const productData = {
           name, sku,
@@ -549,8 +561,14 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         if (existing) { toUpdate.push({ ...productData, id: existing.id }); updated++; }
         else { toInsert.push(productData); added++; }
       });
-      if (toInsert.length > 0) await supabase.from("products").insert(toInsert);
-      for (const p of toUpdate) { await supabase.from("products").update(p).eq("id", p.id); }
+      if (toInsert.length > 0) {
+        const { error: insErr } = await supabase.from("products").insert(toInsert);
+        if (insErr) { notify("Ürünler eklenemedi: " + insErr.message, "error"); return; }
+      }
+      for (const p of toUpdate) {
+        const { id, ...upd } = p;
+        await supabase.from("products").update(upd).eq("id", id);
+      }
       const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
       if (fresh) setProducts(fresh.map(mapProduct));
       notify(`Excel yüklendi: ${added} yeni ürün eklendi, ${updated} güncellendi${errors > 0 ? ", " + errors + " satır atlandı" : ""}`);
