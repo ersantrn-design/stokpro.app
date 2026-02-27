@@ -18,6 +18,7 @@ const mapProduct = (r) => ({
   id: r.id, name: r.name, sku: r.sku, barcode: r.barcode || "",
   category: r.category || "", brand: r.brand || "", variant: r.variant || "",
   minStock: r.min_stock, stock: r.stock, description: r.description || "",
+  costPrice: r.cost_price || 0, salePrice: r.sale_price || 0, vatRate: r.vat_rate || 20,
   createdAt: r.created_at,
 });
 const mapMovement = (r) => ({
@@ -289,6 +290,13 @@ export default function App() {
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ products, movements, criticalProducts, setPage }) {
   const totalStock = products.reduce((s, p) => s + p.stock, 0);
+  const totalStockValue = products.reduce((s, p) => s + (p.stock * (p.costPrice || 0)), 0);
+  const totalSaleValue = products.reduce((s, p) => s + (p.stock * (p.salePrice || 0)), 0);
+  const totalPotentialProfit = products.reduce((s, p) => {
+    if (!p.costPrice || !p.salePrice) return s;
+    const saleExVat = p.salePrice / (1 + (p.vatRate || 20) / 100);
+    return s + (p.stock * (saleExVat - p.costPrice));
+  }, 0);
   const todayMoves = movements.filter(m => new Date(m.createdAt).toDateString() === new Date().toDateString());
   const recentMoves = [...movements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6);
 
@@ -314,11 +322,28 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
         <p style={{ color: "#475569", margin: "4px 0 0", fontSize: 14 }}>{new Date().toLocaleDateString("tr-TR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 16 }}>
         <StatCard title="Toplam Ürün" value={products.length} sub="Tanımlı ürün" icon="products" color="#3b82f6" />
         <StatCard title="Toplam Stok" value={totalStock.toLocaleString("tr-TR")} sub="Tüm ürünler" icon="inventory" color="#8b5cf6" />
         <StatCard title="Kritik Stok" value={criticalProducts.length} sub="Min. seviye altı" icon="warning" color={criticalProducts.length > 0 ? "#ef4444" : "#22c55e"} />
         <StatCard title="Bugünkü Hareket" value={todayMoves.length} sub="Giriş/Çıkış" icon="movements" color="#f59e0b" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Stok Maliyet Değeri</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#e2e8f0" }}>₺{totalStockValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#475569", fontSize: 12, marginTop: 4 }}>Stok × Maliyet Fiyatı</div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Satış Değeri</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#60a5fa" }}>₺{totalSaleValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#475569", fontSize: 12, marginTop: 4 }}>Stok × Satış Fiyatı (KDV Dahil)</div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${totalPotentialProfit >= 0 ? "rgba(74,222,128,0.2)" : "rgba(248,113,113,0.2)"}`, borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Kâr</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: totalPotentialProfit >= 0 ? "#4ade80" : "#f87171" }}>₺{totalPotentialProfit.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#475569", fontSize: 12, marginTop: 4 }}>Tüm stok satılsıydı (KDV Hariç)</div>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -398,8 +423,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
       (!filterCat || p.category === filterCat);
   });
 
-  const openAdd = () => { setForm({ name: "", sku: "", barcode: "", category: "", brand: "", variant: "", minStock: 5, description: "", stock: 0 }); setModal("add"); };
-  const openEdit = (p) => { setForm({ ...p }); setSelected(p); setModal("edit"); };
+  const openAdd = () => { setForm({ name: "", sku: "", barcode: "", category: "", brand: "", variant: "", minStock: 5, description: "", stock: 0, costPrice: "", salePrice: "", vatRate: 20 }); setModal("add"); };
+  const openEdit = (p) => { setForm({ ...p, costPrice: p.costPrice || "", salePrice: p.salePrice || "", vatRate: p.vatRate || 20 }); setSelected(p); setModal("edit"); };
   const openView = (p) => { setSelected(p); setModal("view"); };
   const openMove = (p) => { setSelected(p); setMoveForm({ type: "Giriş", quantity: "", note: "" }); setModal("move"); };
 
@@ -410,6 +435,9 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
       category: form.category || "", brand: form.brand || "", variant: form.variant || "",
       min_stock: Number(form.minStock) || 0, stock: Number(form.stock) || 0,
       description: form.description || "",
+      cost_price: Number(form.costPrice) || 0,
+      sale_price: Number(form.salePrice) || 0,
+      vat_rate: Number(form.vatRate) || 20,
     };
     if (modal === "add") {
       const { data, error } = await supabase.from("products").insert([dbObj]).select().single();
@@ -735,6 +763,15 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 <td style={{ padding: "13px 16px", color: "#64748b", fontSize: 13, fontFamily: "'Space Mono', monospace" }}>{p.sku}</td>
                 <td style={{ padding: "13px 16px" }}><span style={{ background: "rgba(59,130,246,0.1)", color: "#60a5fa", borderRadius: 6, padding: "3px 9px", fontSize: 12 }}>{p.category}</span></td>
                 <td style={{ padding: "13px 16px", color: "#94a3b8", fontSize: 13 }}>{p.brand}</td>
+                <td style={{ padding: "13px 16px", color: "#64748b", fontSize: 13 }}>{p.costPrice > 0 ? `₺${Number(p.costPrice).toFixed(2)}` : "-"}</td>
+                <td style={{ padding: "13px 16px", color: "#e2e8f0", fontSize: 13 }}>{p.salePrice > 0 ? `₺${Number(p.salePrice).toFixed(2)}` : "-"}</td>
+                <td style={{ padding: "13px 16px", fontSize: 13 }}>{(() => {
+                  if (!p.costPrice || !p.salePrice) return <span style={{ color: "#475569" }}>-</span>;
+                  const saleExVat = Number(p.salePrice) / (1 + (p.vatRate || 20) / 100);
+                  const margin = ((saleExVat - Number(p.costPrice)) / saleExVat * 100).toFixed(1);
+                  const col = margin >= 0 ? "#4ade80" : "#f87171";
+                  return <span style={{ color: col, fontWeight: 600 }}>{margin}%</span>;
+                })()}</td>
                 <td style={{ padding: "13px 16px", fontWeight: 700, fontSize: 18, color: p.stock === 0 ? "#ef4444" : p.stock <= p.minStock ? "#f97316" : "#f8fafc" }}>{p.stock}</td>
                 <td style={{ padding: "13px 16px", color: "#475569", fontSize: 13 }}>{p.minStock}</td>
                 <td style={{ padding: "13px 16px" }}>
@@ -824,6 +861,44 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
             <Field label="Başlangıç Stoku" field="stock" type="number" />
             <Field label="Minimum Stok Seviyesi" field="minStock" type="number" />
             <Field label="Açıklama" field="description" span />
+            <div style={{ gridColumn: "1/-1", borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 14, marginTop: 4 }}>
+              <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fiyat Bilgileri</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Maliyet Fiyatı (KDV Hariç) ₺</label>
+                  <input type="number" min="0" step="0.01" value={form.costPrice || ""} onChange={e => setForm(f => ({ ...f, costPrice: e.target.value }))}
+                    style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+                </div>
+                <div>
+                  <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Satış Fiyatı (KDV Dahil) ₺</label>
+                  <input type="number" min="0" step="0.01" value={form.salePrice || ""} onChange={e => setForm(f => ({ ...f, salePrice: e.target.value }))}
+                    style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+                </div>
+                <div>
+                  <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>KDV Oranı %</label>
+                  <select value={form.vatRate || 20} onChange={e => setForm(f => ({ ...f, vatRate: Number(e.target.value) }))}
+                    style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }}>
+                    <option value={1}>%1</option>
+                    <option value={10}>%10</option>
+                    <option value={20}>%20</option>
+                  </select>
+                </div>
+              </div>
+              {form.costPrice > 0 && form.salePrice > 0 && (() => {
+                const vatRate = Number(form.vatRate) || 20;
+                const saleExVat = Number(form.salePrice) / (1 + vatRate / 100);
+                const profit = saleExVat - Number(form.costPrice);
+                const margin = (profit / saleExVat * 100).toFixed(1);
+                const color = profit >= 0 ? "#4ade80" : "#f87171";
+                return (
+                  <div style={{ marginTop: 10, padding: "10px 14px", background: `${profit >= 0 ? "rgba(74,222,128,0.08)" : "rgba(248,113,113,0.08)"}`, borderRadius: 8, border: `1px solid ${profit >= 0 ? "rgba(74,222,128,0.2)" : "rgba(248,113,113,0.2)"}`, display: "flex", gap: 24 }}>
+                    <span style={{ color: "#94a3b8", fontSize: 13 }}>KDV Hariç Satış: <strong style={{ color: "#e2e8f0" }}>₺{saleExVat.toFixed(2)}</strong></span>
+                    <span style={{ color: "#94a3b8", fontSize: 13 }}>Kâr: <strong style={{ color }}>{profit >= 0 ? "+" : ""}₺{profit.toFixed(2)}</strong></span>
+                    <span style={{ color: "#94a3b8", fontSize: 13 }}>Marj: <strong style={{ color }}>{margin}%</strong></span>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </Modal>
       )}
@@ -1251,6 +1326,23 @@ function ReportsPage({ products, movements, criticalProducts }) {
   const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
   const [activeReport, setActiveReport] = useState("stock-summary");
 
+  // Kâr analizi hesaplamaları
+  const productsWithPrice = products.filter(p => p.costPrice > 0 && p.salePrice > 0);
+  const profitData = productsWithPrice.map(p => {
+    const saleExVat = p.salePrice / (1 + (p.vatRate || 20) / 100);
+    const profitPerUnit = saleExVat - p.costPrice;
+    const margin = saleExVat > 0 ? (profitPerUnit / saleExVat * 100) : 0;
+    const totalProfit = p.stock * profitPerUnit;
+    const stockValue = p.stock * p.costPrice;
+    return { ...p, saleExVat, profitPerUnit, margin, totalProfit, stockValue };
+  }).sort((a, b) => b.margin - a.margin);
+
+  const topProfitable = [...profitData].sort((a, b) => b.margin - a.margin).slice(0, 10);
+  const topByTotalProfit = [...profitData].sort((a, b) => b.totalProfit - a.totalProfit).slice(0, 10);
+  const totalStockVal = products.reduce((s, p) => s + p.stock * (p.costPrice || 0), 0);
+  const totalSaleVal = products.reduce((s, p) => s + p.stock * (p.salePrice || 0), 0);
+  const totalPotProfit = profitData.reduce((s, p) => s + p.totalProfit, 0);
+
   const filtered = movements.filter(m => {
     const d = m.createdAt.slice(0, 10);
     return d >= dateFrom && d <= dateTo;
@@ -1275,6 +1367,7 @@ function ReportsPage({ products, movements, criticalProducts }) {
     { id: "stock-summary", label: "Stok Özeti", icon: "products" },
     { id: "movements", label: "Hareket Raporu", icon: "movements" },
     { id: "critical", label: "Kritik Stok", icon: "warning" },
+    { id: "kar-analizi", label: "Kâr Analizi", icon: "reports" },
     { id: "activity", label: "Ürün Aktivitesi", icon: "trending_up" },
   ];
 
@@ -1418,6 +1511,79 @@ function ReportsPage({ products, movements, criticalProducts }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeReport === "kar-analizi" && (
+        <div>
+          {productsWithPrice.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "#475569" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>💰</div>
+              <div>Kâr analizi için ürünlere maliyet ve satış fiyatı girin</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* Summary cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "18px 22px" }}>
+                  <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>Stok Maliyet Değeri</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>₺{totalStockVal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "18px 22px" }}>
+                  <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>Potansiyel Satış (KDV Dahil)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#60a5fa" }}>₺{totalSaleVal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${totalPotProfit >= 0 ? "rgba(74,222,128,0.2)" : "rgba(248,113,113,0.2)"}`, borderRadius: 14, padding: "18px 22px" }}>
+                  <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>Potansiyel Kâr (KDV Hariç)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: totalPotProfit >= 0 ? "#4ade80" : "#f87171" }}>₺{totalPotProfit.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+              </div>
+
+              {/* En kârlı ürünler (marj) */}
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 20 }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#e2e8f0" }}>En Yüksek Kâr Marjı</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {topProfitable.map((p, i) => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: 10 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: 6, background: i < 3 ? "linear-gradient(135deg,#f59e0b,#d97706)" : "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: i < 3 ? "#fff" : "#475569", flexShrink: 0 }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#475569" }}>Maliyet: ₺{Number(p.costPrice).toFixed(2)} → KDV Hariç Satış: ₺{p.saleExVat.toFixed(2)}</div>
+                      </div>
+                      <div style={{ width: 120, height: 6, background: "rgba(255,255,255,0.05)", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", background: p.margin >= 0 ? "linear-gradient(90deg,#22c55e,#4ade80)" : "linear-gradient(90deg,#ef4444,#f87171)", borderRadius: 3, width: `${Math.min(Math.abs(p.margin), 100)}%` }} />
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: p.margin >= 0 ? "#4ade80" : "#f87171", width: 55, textAlign: "right" }}>{p.margin.toFixed(1)}%</div>
+                      <div style={{ fontSize: 12, color: "#64748b", width: 90, textAlign: "right" }}>Stok: {p.stock} adet</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* En yüksek toplam kâr */}
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 20 }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#e2e8f0" }}>En Yüksek Toplam Kâr Potansiyeli</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {topByTotalProfit.map((p, i) => {
+                    const maxProfit = topByTotalProfit[0].totalProfit;
+                    return (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: 10 }}>
+                        <div style={{ width: 24, height: 24, borderRadius: 6, background: i < 3 ? "linear-gradient(135deg,#3b82f6,#8b5cf6)" : "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: i < 3 ? "#fff" : "#475569", flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                          <div style={{ fontSize: 11, color: "#475569" }}>{p.stock} adet × ₺{p.profitPerUnit.toFixed(2)} kâr/adet</div>
+                        </div>
+                        <div style={{ width: 120, height: 6, background: "rgba(255,255,255,0.05)", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ height: "100%", background: "linear-gradient(90deg,#3b82f6,#8b5cf6)", borderRadius: 3, width: `${maxProfit > 0 ? (p.totalProfit / maxProfit * 100) : 0}%` }} />
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: p.totalProfit >= 0 ? "#4ade80" : "#f87171", width: 110, textAlign: "right" }}>₺{p.totalProfit.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </div>
