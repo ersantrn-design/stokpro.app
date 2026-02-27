@@ -32,6 +32,27 @@ const mapUser = (r) => ({
   password: r.password_hash, role: r.role,
 });
 
+const mapSupplier = (r) => ({
+  id: r.id, name: r.name, contactName: r.contact_name || "", phone: r.phone || "",
+  email: r.email || "", taxNumber: r.tax_number || "", address: r.address || "",
+  notes: r.notes || "", isActive: r.is_active, createdAt: r.created_at,
+});
+
+const mapOrder = (r) => ({
+  id: r.id, supplierId: r.supplier_id, supplierName: r.supplier_name,
+  status: r.status, orderDate: r.order_date, deliveryDate: r.delivery_date || "",
+  totalAmount: Number(r.total_amount) || 0, notes: r.notes || "",
+  createdBy: r.created_by || "", createdAt: r.created_at,
+});
+
+const mapOrderItem = (r) => ({
+  id: r.id, orderId: r.order_id, productId: r.product_id,
+  productName: r.product_name, productSku: r.product_sku || "",
+  quantity: r.quantity, unitCost: Number(r.unit_cost),
+  totalCost: Number(r.total_cost) || r.quantity * Number(r.unit_cost),
+  receivedQty: r.received_qty || 0,
+});
+
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 18 }) => {
   const icons = {
@@ -55,6 +76,9 @@ const Icon = ({ name, size = 18 }) => {
     eye: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
     inventory: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8h14M5 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>,
     scan: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>,
+    purchasing: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+    supplier: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
+    truck: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
     refresh: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
   };
   return icons[name] || null;
@@ -145,6 +169,8 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [appUsers, setAppUsers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [categories, setCategories] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_cats")) || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; } });
   const [brands, setBrands] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_brands")) || DEFAULT_BRANDS; } catch { return DEFAULT_BRANDS; } });
   const [notification, setNotification] = useState(null);
@@ -170,14 +196,18 @@ export default function App() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [{ data: prods }, { data: moves }, { data: users }] = await Promise.all([
+        const [{ data: prods }, { data: moves }, { data: users }, { data: supps }, { data: orders }] = await Promise.all([
           supabase.from("products").select("*").order("created_at", { ascending: false }),
           supabase.from("movements").select("*").order("created_at", { ascending: false }),
           supabase.from("app_users").select("*"),
+          supabase.from("suppliers").select("*").order("created_at", { ascending: false }),
+          supabase.from("purchase_orders").select("*").order("created_at", { ascending: false }),
         ]);
         if (prods) setProducts(prods.map(mapProduct));
         if (moves) setMovements(moves.map(mapMovement));
         if (users) setAppUsers(users.map(mapUser));
+        if (supps) setSuppliers(supps.map(mapSupplier));
+        if (orders) setPurchaseOrders(orders.map(mapOrder));
       } catch (e) { notify("Veriler yüklenirken hata oluştu", "error"); }
       setLoading(false);
     };
@@ -205,6 +235,7 @@ export default function App() {
     counting: <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />,
     reports: <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />,
     settings: <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} />,
+    purchasing: <PurchasingPage suppliers={suppliers} setSuppliers={setSuppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} />,
   };
 
   const navItems = [
@@ -212,6 +243,7 @@ export default function App() {
     { id: "products", label: "Ürünler", icon: "products" },
     { id: "movements", label: "Hareketler", icon: "movements" },
     { id: "counting", label: "Sayım", icon: "scan" },
+    { id: "purchasing", label: "Satın Alma", icon: "purchasing" },
     { id: "reports", label: "Raporlar", icon: "reports" },
     { id: "settings", label: "Ayarlar", icon: "settings" },
   ];
@@ -1669,6 +1701,403 @@ function ListManager({ title, items, onSave, color }) {
         ))}
         {list.length === 0 && <div style={{ color: "#475569", fontSize: 13, textAlign: "center", padding: "20px 0" }}>Henüz kayıt yok</div>}
       </div>
+    </div>
+  );
+}
+
+
+// ─── PURCHASING PAGE ──────────────────────────────────────────────────────────
+function PurchasingPage({ suppliers, setSuppliers, purchaseOrders, setPurchaseOrders, products, setProducts, setMovements, user, notify }) {
+  const [tab, setTab] = useState("orders");
+  const [modal, setModal] = useState(null); // "supplier" | "order" | "order-detail"
+  const [supplierForm, setSupplierForm] = useState({});
+  const [orderForm, setOrderForm] = useState({ supplierId: "", orderDate: new Date().toISOString().slice(0,10), notes: "" });
+  const [orderItems, setOrderItems] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [editSupplier, setEditSupplier] = useState(null);
+  const canEdit = user.role === "admin" || user.role === "user";
+
+  const sfld = (k, v) => setSupplierForm(f => ({ ...f, [k]: v }));
+
+  // ── Supplier CRUD ──
+  const openAddSupplier = () => { setEditSupplier(null); setSupplierForm({ name:"",contactName:"",phone:"",email:"",taxNumber:"",address:"",notes:"" }); setModal("supplier"); };
+  const openEditSupplier = (s) => { setEditSupplier(s); setSupplierForm({ ...s }); setModal("supplier"); };
+
+  const saveSupplier = async () => {
+    if (!supplierForm.name?.trim()) { notify("Firma adı zorunlu", "error"); return; }
+    const dbObj = { name: supplierForm.name.trim(), contact_name: supplierForm.contactName||"", phone: supplierForm.phone||"", email: supplierForm.email||"", tax_number: supplierForm.taxNumber||"", address: supplierForm.address||"", notes: supplierForm.notes||"" };
+    if (editSupplier) {
+      const { error } = await supabase.from("suppliers").update(dbObj).eq("id", editSupplier.id);
+      if (error) { notify("Güncelleme hatası: " + error.message, "error"); return; }
+      setSuppliers(prev => prev.map(s => s.id === editSupplier.id ? { ...s, ...mapSupplier({ ...dbObj, id: editSupplier.id, is_active: true, created_at: editSupplier.createdAt }) } : s));
+    } else {
+      const { data, error } = await supabase.from("suppliers").insert([dbObj]).select().single();
+      if (error) { notify("Tedarikçi eklenemedi: " + error.message, "error"); return; }
+      setSuppliers(prev => [mapSupplier(data), ...prev]);
+    }
+    notify(editSupplier ? "Tedarikçi güncellendi" : "Tedarikçi eklendi");
+    setModal(null);
+  };
+
+  const deleteSupplier = async (s) => {
+    if (!window.confirm(`"${s.name}" tedarikçisini silmek istediğinize emin misiniz?`)) return;
+    const { error } = await supabase.from("suppliers").delete().eq("id", s.id);
+    if (error) { notify("Silinemedi: " + error.message, "error"); return; }
+    setSuppliers(prev => prev.filter(x => x.id !== s.id));
+    notify("Tedarikçi silindi");
+  };
+
+  // ── Order CRUD ──
+  const openAddOrder = () => {
+    setSelectedOrder(null);
+    setOrderForm({ supplierId: suppliers[0]?.id || "", orderDate: new Date().toISOString().slice(0,10), notes: "" });
+    setOrderItems([{ productId: "", productName: "", productSku: "", quantity: 1, unitCost: "" }]);
+    setModal("order");
+  };
+
+  const addOrderItemRow = () => setOrderItems(prev => [...prev, { productId: "", productName: "", productSku: "", quantity: 1, unitCost: "" }]);
+  const removeOrderItemRow = (i) => setOrderItems(prev => prev.filter((_, idx) => idx !== i));
+  const updateOrderItem = (i, k, v) => setOrderItems(prev => prev.map((item, idx) => idx === i ? { ...item, [k]: v } : item));
+  const selectProduct = (i, productId) => {
+    const p = products.find(x => x.id === productId);
+    if (p) updateOrderItem(i, "productId", productId);
+    if (p) updateOrderItem(i, "productName", p.name);
+    if (p) updateOrderItem(i, "productSku", p.sku);
+    if (p && p.costPrice) updateOrderItem(i, "unitCost", p.costPrice);
+  };
+
+  const orderTotal = orderItems.reduce((s, item) => s + (parseFloat(item.unitCost)||0) * (parseInt(item.quantity)||0), 0);
+
+  const saveOrder = async () => {
+    const supplier = suppliers.find(s => s.id === orderForm.supplierId);
+    if (!supplier) { notify("Tedarikçi seçin", "error"); return; }
+    const validItems = orderItems.filter(item => item.productId && item.quantity > 0 && item.unitCost > 0);
+    if (validItems.length === 0) { notify("En az bir ürün ekleyin", "error"); return; }
+
+    const orderData = { supplier_id: supplier.id, supplier_name: supplier.name, status: "Bekliyor", order_date: orderForm.orderDate, total_amount: orderTotal, notes: orderForm.notes || "", created_by: user.username };
+    const { data: orderRow, error: orderErr } = await supabase.from("purchase_orders").insert([orderData]).select().single();
+    if (orderErr) { notify("Sipariş oluşturulamadı: " + orderErr.message, "error"); return; }
+
+    const itemRows = validItems.map(item => ({ order_id: orderRow.id, product_id: item.productId, product_name: item.productName, product_sku: item.productSku, quantity: parseInt(item.quantity), unit_cost: parseFloat(item.unitCost) }));
+    const { error: itemErr } = await supabase.from("purchase_order_items").insert(itemRows);
+    if (itemErr) { notify("Kalemler eklenemedi: " + itemErr.message, "error"); return; }
+
+    setPurchaseOrders(prev => [mapOrder(orderRow), ...prev]);
+    notify("Satın alma siparişi oluşturuldu");
+    setModal(null);
+  };
+
+  const openOrderDetail = async (order) => {
+    const { data: items } = await supabase.from("purchase_order_items").select("*").eq("order_id", order.id);
+    setSelectedOrder({ ...order, items: (items || []).map(mapOrderItem) });
+    setModal("order-detail");
+  };
+
+  const deliverOrder = async () => {
+    if (!selectedOrder) return;
+    const items = selectedOrder.items || [];
+    for (const item of items) {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) continue;
+      const prev = product.stock;
+      const next = prev + item.quantity;
+      await supabase.from("products").update({ stock: next }).eq("id", item.productId);
+      await supabase.from("movements").insert([{ product_id: item.productId, product_name: item.productName, type: "Giriş", quantity: item.quantity, prev_stock: prev, next_stock: next, username: user.username, note: `Satın alma #${selectedOrder.id.slice(-6)} - ${selectedOrder.supplierName}` }]);
+    }
+    await supabase.from("purchase_orders").update({ status: "Teslim Edildi", delivery_date: new Date().toISOString().slice(0,10) }).eq("id", selectedOrder.id);
+
+    // Refresh products and movements
+    const { data: freshProds } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+    const { data: freshMoves } = await supabase.from("movements").select("*").order("created_at", { ascending: false });
+    if (freshProds) setProducts(freshProds.map(mapProduct));
+    if (freshMoves) setMovements(freshMoves.map(mapMovement));
+    setPurchaseOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, status: "Teslim Edildi", deliveryDate: new Date().toISOString().slice(0,10) } : o));
+
+    notify(`${items.length} ürün stoka eklendi ✓`);
+    setModal(null);
+  };
+
+  const cancelOrder = async (order) => {
+    if (!window.confirm("Siparişi iptal etmek istediğinize emin misiniz?")) return;
+    await supabase.from("purchase_orders").update({ status: "İptal" }).eq("id", order.id);
+    setPurchaseOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "İptal" } : o));
+    notify("Sipariş iptal edildi");
+  };
+
+  const exportOrders = () => exportExcel(purchaseOrders.map(o => ({ "Sipariş ID": o.id.slice(-8), Tedarikçi: o.supplierName, Durum: o.status, "Sipariş Tarihi": o.orderDate, "Teslim Tarihi": o.deliveryDate || "-", "Toplam (₺)": o.totalAmount, Not: o.notes, Oluşturan: o.createdBy })), "satin-alma-siparisleri.xlsx");
+
+  const statusColor = (s) => s === "Teslim Edildi" ? { bg: "rgba(34,197,94,0.12)", color: "#4ade80" } : s === "İptal" ? { bg: "rgba(100,116,139,0.12)", color: "#64748b" } : { bg: "rgba(251,191,36,0.12)", color: "#fbbf24" };
+
+  // Supplier stats
+  const getSupplierStats = (supplierId) => {
+    const orders = purchaseOrders.filter(o => o.supplierId === supplierId && o.status === "Teslim Edildi");
+    return { orderCount: orders.length, totalSpent: orders.reduce((s, o) => s + o.totalAmount, 0) };
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Satın Alma</h1>
+          <p style={{ color: "#475569", margin: "4px 0 0", fontSize: 13 }}>{purchaseOrders.length} sipariş · {suppliers.length} tedarikçi</p>
+        </div>
+        {canEdit && (
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={exportOrders} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#94a3b8", cursor: "pointer", fontSize: 14 }}>
+              <Icon name="download" size={15} /> Excel İndir
+            </button>
+            {tab === "orders" && (
+              <button onClick={openAddOrder} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                <Icon name="add" size={15} /> Yeni Sipariş
+              </button>
+            )}
+            {tab === "suppliers" && (
+              <button onClick={openAddSupplier} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                <Icon name="add" size={15} /> Yeni Tedarikçi
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 4, width: "fit-content" }}>
+        {[["orders", "Siparişler"], ["suppliers", "Tedarikçiler"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ padding: "8px 20px", borderRadius: 9, border: "none", background: tab === id ? "rgba(59,130,246,0.2)" : "transparent", color: tab === id ? "#60a5fa" : "#64748b", cursor: "pointer", fontSize: 14, fontWeight: tab === id ? 600 : 400, transition: "all 0.15s" }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Orders Tab */}
+      {tab === "orders" && (
+        <div>
+          {purchaseOrders.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "#475569" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🛒</div>
+              <div style={{ fontSize: 15, marginBottom: 8 }}>Henüz satın alma siparişi yok</div>
+              {canEdit && <button onClick={openAddOrder} style={{ padding: "10px 24px", background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>İlk Siparişi Oluştur</button>}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {purchaseOrders.map(order => {
+                const sc = statusColor(order.status);
+                return (
+                  <div key={order.id} className="card-hover" onClick={() => openOrderDetail(order)} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "16px 20px", cursor: "pointer", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(59,130,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon name="truck" size={18} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 14, color: "#e2e8f0" }}>{order.supplierName}</span>
+                        <span style={{ background: sc.bg, color: sc.color, borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 500 }}>{order.status}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#475569" }}>Sipariş: {order.orderDate}{order.deliveryDate ? ` · Teslim: ${order.deliveryDate}` : ""}{order.notes ? ` · ${order.notes}` : ""}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>₺{Number(order.totalAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</div>
+                      <div style={{ fontSize: 11, color: "#475569" }}>#{order.id.slice(-8)}</div>
+                    </div>
+                    {canEdit && order.status === "Bekliyor" && (
+                      <button onClick={e => { e.stopPropagation(); cancelOrder(order); }} style={{ padding: "6px 12px", background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.2)", borderRadius: 8, color: "#64748b", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>İptal</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Suppliers Tab */}
+      {tab === "suppliers" && (
+        <div>
+          {suppliers.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "#475569" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🏭</div>
+              <div style={{ fontSize: 15, marginBottom: 8 }}>Henüz tedarikçi eklenmedi</div>
+              {canEdit && <button onClick={openAddSupplier} style={{ padding: "10px 24px", background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>İlk Tedarikçiyi Ekle</button>}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
+              {suppliers.map(s => {
+                const stats = getSupplierStats(s.id);
+                return (
+                  <div key={s.id} className="card-hover" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 20, transition: "all 0.15s" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 42, height: 42, borderRadius: 12, background: "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.2))", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon name="supplier" size={20} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "#e2e8f0" }}>{s.name}</div>
+                          {s.contactName && <div style={{ fontSize: 12, color: "#64748b" }}>{s.contactName}</div>}
+                        </div>
+                      </div>
+                      {canEdit && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => openEditSupplier(s)} style={{ padding: "5px 10px", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 7, color: "#60a5fa", cursor: "pointer", fontSize: 12 }}>Düzenle</button>
+                          <button onClick={() => deleteSupplier(s)} style={{ padding: "5px 10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 7, color: "#f87171", cursor: "pointer", fontSize: 12 }}>Sil</button>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                      {s.phone && <div style={{ fontSize: 13, color: "#94a3b8" }}>📞 {s.phone}</div>}
+                      {s.email && <div style={{ fontSize: 13, color: "#94a3b8" }}>✉️ {s.email}</div>}
+                      {s.taxNumber && <div style={{ fontSize: 13, color: "#94a3b8" }}>🧾 VKN: {s.taxNumber}</div>}
+                      {s.address && <div style={{ fontSize: 13, color: "#94a3b8" }}>📍 {s.address}</div>}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: "#475569", marginBottom: 3 }}>Teslim Edilen Sipariş</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>{stats.orderCount}</div>
+                      </div>
+                      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: "#475569", marginBottom: 3 }}>Toplam Alım</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#4ade80" }}>₺{stats.totalSpent.toLocaleString("tr-TR", { minimumFractionDigits: 0 })}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Supplier Modal */}
+      {modal === "supplier" && (
+        <Modal title={editSupplier ? "Tedarikçi Düzenle" : "Yeni Tedarikçi"} onClose={() => setModal(null)}
+          footer={<><button onClick={() => setModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={saveSupplier} style={btnStyle("primary")}>{editSupplier ? "Güncelle" : "Ekle"}</button></>}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            {[["name","Firma Adı *","text",true],["contactName","Yetkili Adı","text",false],["phone","Telefon","tel",false],["email","E-posta","email",false],["taxNumber","Vergi No","text",false]].map(([k,label,type,req]) => (
+              <div key={k} style={{ gridColumn: k === "name" || k === "address" ? "1/-1" : undefined }}>
+                <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>{label}</label>
+                <input type={type} value={supplierForm[k]||""} onChange={e => sfld(k, e.target.value)}
+                  style={{ width: "100%", background: "#1e293b", border: `1px solid ${req && !supplierForm[k] ? "rgba(239,68,68,0.4)" : "#334155"}`, borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+              </div>
+            ))}
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Adres</label>
+              <textarea value={supplierForm.address||""} onChange={e => sfld("address", e.target.value)} rows={2}
+                style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none", resize: "vertical" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Notlar</label>
+              <textarea value={supplierForm.notes||""} onChange={e => sfld("notes", e.target.value)} rows={2}
+                style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none", resize: "vertical" }} />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* New Order Modal */}
+      {modal === "order" && (
+        <Modal title="Yeni Satın Alma Siparişi" onClose={() => setModal(null)}
+          footer={<><button onClick={() => setModal(null)} style={btnStyle("ghost")}>İptal</button><button onClick={saveOrder} style={btnStyle("primary")}>Sipariş Oluştur</button></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Tedarikçi *</label>
+                <select value={orderForm.supplierId} onChange={e => setOrderForm(f => ({ ...f, supplierId: e.target.value }))}
+                  style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }}>
+                  <option value="">Seçin...</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Sipariş Tarihi</label>
+                <input type="date" value={orderForm.orderDate} onChange={e => setOrderForm(f => ({ ...f, orderDate: e.target.value }))}
+                  style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ color: "#94a3b8", fontSize: 12, display: "block", marginBottom: 5 }}>Not</label>
+              <input type="text" value={orderForm.notes||""} onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} placeholder="Opsiyonel"
+                style={{ width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#f1f5f9", fontSize: 14, outline: "none" }} />
+            </div>
+
+            {/* Order Items */}
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <label style={{ color: "#94a3b8", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Ürünler</label>
+                <button onClick={addOrderItemRow} style={{ padding: "5px 12px", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 7, color: "#60a5fa", cursor: "pointer", fontSize: 12 }}>+ Ürün Ekle</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {orderItems.map((item, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 100px 32px", gap: 8, alignItems: "center" }}>
+                    <select value={item.productId} onChange={e => selectProduct(i, e.target.value)}
+                      style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "8px 10px", color: item.productId ? "#f1f5f9" : "#475569", fontSize: 13, outline: "none" }}>
+                      <option value="">Ürün seçin...</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                    </select>
+                    <input type="number" min="1" placeholder="Adet" value={item.quantity} onChange={e => updateOrderItem(i, "quantity", e.target.value)}
+                      style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "8px 10px", color: "#f1f5f9", fontSize: 13, outline: "none", textAlign: "center" }} />
+                    <input type="number" min="0" step="0.01" placeholder="Birim Maliyet ₺" value={item.unitCost} onChange={e => updateOrderItem(i, "unitCost", e.target.value)}
+                      style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "8px 10px", color: "#f1f5f9", fontSize: 13, outline: "none" }} />
+                    <button onClick={() => removeOrderItemRow(i)} style={{ width: 32, height: 32, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 7, color: "#f87171", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                  </div>
+                ))}
+              </div>
+              {orderItems.length > 0 && (
+                <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(59,130,246,0.06)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#94a3b8", fontSize: 13 }}>{orderItems.filter(x => x.productId).length} ürün kalem</span>
+                  <span style={{ color: "#e2e8f0", fontWeight: 700, fontSize: 14 }}>Toplam: ₺{orderTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Order Detail Modal */}
+      {modal === "order-detail" && selectedOrder && (
+        <Modal title={`Sipariş Detayı — ${selectedOrder.supplierName}`} onClose={() => setModal(null)}
+          footer={<>
+            <button onClick={() => setModal(null)} style={btnStyle("ghost")}>Kapat</button>
+            {canEdit && selectedOrder.status === "Bekliyor" && (
+              <button onClick={deliverOrder} style={{ ...btnStyle("primary"), background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
+                ✓ Teslim Edildi — Stokları Güncelle
+              </button>
+            )}
+          </>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {[["Durum", selectedOrder.status], ["Sipariş Tarihi", selectedOrder.orderDate], ["Teslim Tarihi", selectedOrder.deliveryDate || "—"]].map(([label, value]) => (
+                <div key={label} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ color: "#475569", fontSize: 11, marginBottom: 4 }}>{label}</div>
+                  <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 14 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {selectedOrder.notes && <div style={{ color: "#94a3b8", fontSize: 13 }}>📝 {selectedOrder.notes}</div>}
+            <div>
+              <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600, textTransform: "uppercase", marginBottom: 10 }}>Ürün Kalemleri</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(selectedOrder.items || []).map(item => (
+                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10 }}>
+                    <div>
+                      <div style={{ color: "#e2e8f0", fontSize: 13, fontWeight: 500 }}>{item.productName}</div>
+                      <div style={{ color: "#475569", fontSize: 12 }}>SKU: {item.productSku}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: "#e2e8f0", fontSize: 13 }}>{item.quantity} adet × ₺{Number(item.unitCost).toFixed(2)}</div>
+                      <div style={{ color: "#4ade80", fontWeight: 600, fontSize: 14 }}>₺{Number(item.totalCost).toFixed(2)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 0", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+              <span style={{ color: "#94a3b8", fontSize: 14 }}>Genel Toplam: <strong style={{ color: "#e2e8f0", fontSize: 18 }}>₺{Number(selectedOrder.totalAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</strong></span>
+            </div>
+            {canEdit && selectedOrder.status === "Bekliyor" && (
+              <div style={{ padding: "12px 16px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 10, fontSize: 13, color: "#fbbf24" }}>
+                ⚠️ "Teslim Edildi" butonuna basınca tüm ürünlerin stokları otomatik artacak ve hareket kaydı oluşacak.
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
