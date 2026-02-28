@@ -54,6 +54,199 @@ const mapOrderItem = (r) => ({
 });
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
+// ─── CAMERA BARCODE SCANNER ───────────────────────────────────────────────────
+// ZXing kütüphanesi CDN üzerinden yüklenir, bileşen mount olunca dinamik import
+function CameraScanner({ onDetected, onClose }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const readerRef = useRef(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [lastResult, setLastResult] = useState(null);
+  const [torchOn, setTorchOn] = useState(false);
+  const [facingMode, setFacingMode] = useState("environment");
+
+  const stopCamera = () => {
+    if (readerRef.current) { try { readerRef.current.reset(); } catch(e) {} }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+  };
+
+  const startScanner = async (facing) => {
+    setLoading(true);
+    setError(null);
+    stopCamera();
+
+    try {
+      // Load ZXing dynamically from CDN if not already loaded
+      if (!window.ZXing) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";
+          s.onload = resolve;
+          s.onerror = () => reject(new Error("ZXing yüklenemedi"));
+          document.head.appendChild(s);
+        });
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      const hints = new Map();
+      const formats = [
+        window.ZXing.BarcodeFormat.EAN_13,
+        window.ZXing.BarcodeFormat.EAN_8,
+        window.ZXing.BarcodeFormat.CODE_128,
+        window.ZXing.BarcodeFormat.CODE_39,
+        window.ZXing.BarcodeFormat.QR_CODE,
+        window.ZXing.BarcodeFormat.DATA_MATRIX,
+        window.ZXing.BarcodeFormat.UPC_A,
+        window.ZXing.BarcodeFormat.UPC_E,
+      ];
+      hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+      hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+
+      const reader = new window.ZXing.BrowserMultiFormatReader(hints);
+      readerRef.current = reader;
+
+      let lastCode = null;
+      let lastTime = 0;
+
+      reader.decodeFromVideoElement(videoRef.current, (result, err) => {
+        if (result) {
+          const code = result.getText();
+          const now = Date.now();
+          // Debounce: aynı kodu 1.5 saniye içinde tekrar okuma
+          if (code !== lastCode || now - lastTime > 1500) {
+            lastCode = code;
+            lastTime = now;
+            setLastResult(code);
+            // Kısa titreşim feedback
+            if (navigator.vibrate) navigator.vibrate(80);
+            onDetected(code);
+          }
+        }
+      });
+
+      setLoading(false);
+    } catch (err) {
+      setError(err.message || "Kamera açılamadı");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    startScanner(facingMode);
+    return stopCamera;
+  }, []);
+
+  const switchCamera = () => {
+    const next = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(next);
+    startScanner(next);
+  };
+
+  const toggleTorch = async () => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
+      setTorchOn(t => !t);
+    } catch(e) { notify && notify("Flaş bu cihazda desteklenmiyor", "error"); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+      {/* Header */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)", zIndex: 10 }}>
+        <div style={{ color: "#fff" }}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Barkod Tara</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>Kamerayı barkoda doğrultun</div>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={switchCamera} style={{ width: 38, height: 38, borderRadius: 99, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            title="Kamera değiştir">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+          <button onClick={toggleTorch} style={{ width: 38, height: 38, borderRadius: 99, background: torchOn ? "rgba(255,220,50,0.3)" : "rgba(255,255,255,0.15)", border: torchOn ? "1px solid rgba(255,220,50,0.5)" : "none", color: torchOn ? "#ffd932" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            title="Flaş">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </button>
+          <button onClick={() => { stopCamera(); onClose(); }} style={{ width: 38, height: 38, borderRadius: 99, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Video */}
+      <div style={{ position: "relative", width: "100%", maxWidth: 480, aspectRatio: "4/3" }}>
+        <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: loading || error ? "none" : "block" }} muted playsInline />
+
+        {/* Tarama çerçevesi */}
+        {!loading && !error && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+            <div style={{ width: "70%", height: "35%", position: "relative" }}>
+              {/* Köşeler */}
+              {[{top:0,left:0,borderTop:"3px solid #fff",borderLeft:"3px solid #fff",borderRadius:"6px 0 0 0"},
+                {top:0,right:0,borderTop:"3px solid #fff",borderRight:"3px solid #fff",borderRadius:"0 6px 0 0"},
+                {bottom:0,left:0,borderBottom:"3px solid #fff",borderLeft:"3px solid #fff",borderRadius:"0 0 0 6px"},
+                {bottom:0,right:0,borderBottom:"3px solid #fff",borderRight:"3px solid #fff",borderRadius:"0 0 6px 0"}
+              ].map((s, i) => (
+                <div key={i} style={{ position: "absolute", width: 24, height: 24, ...s }} />
+              ))}
+              {/* Scan line animasyonu */}
+              <div style={{ position: "absolute", left: 4, right: 4, height: 2, background: "linear-gradient(90deg, transparent, #22c55e, transparent)", animation: "scanLine 1.8s ease-in-out infinite" }} />
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div style={{ position: "absolute", inset: 0, background: "#000", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+            <div style={{ width: 32, height: 32, border: "3px solid rgba(255,255,255,0.2)", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>Kamera başlatılıyor...</div>
+          </div>
+        )}
+        {error && (
+          <div style={{ position: "absolute", inset: 0, background: "#000", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, textAlign: "center" }}>{error}</div>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, textAlign: "center" }}>Tarayıcı ayarlarından kamera iznini kontrol edin</div>
+            <button onClick={() => startScanner(facingMode)} style={{ marginTop: 8, padding: "9px 20px", background: "#fff", border: "none", borderRadius: 9, color: "#18181b", fontWeight: 600, cursor: "pointer", fontSize: 13 }}>Tekrar Dene</button>
+          </div>
+        )}
+      </div>
+
+      {/* Son okunan */}
+      <div style={{ marginTop: 20, padding: "14px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, minWidth: 280, textAlign: "center" }}>
+        {lastResult ? (
+          <>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Son Okunan</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e", fontFamily: "monospace", letterSpacing: "0.05em" }}>{lastResult}</div>
+          </>
+        ) : (
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>Henüz barkod okunmadı</div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes scanLine {
+          0% { top: 4px; opacity: 1; }
+          50% { top: calc(100% - 6px); opacity: 1; }
+          100% { top: 4px; opacity: 1; }
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}
+
+
 const Icon = ({ name, size = 18, color }) => {
   const icons = {
     dashboard: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
@@ -1208,8 +1401,21 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
   const [filterDate, setFilterDate] = useState("");
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ productId: "", type: "Giriş", quantity: "", note: "" });
+  const [showCamera, setShowCamera] = useState(false);
 
   const canEdit = user.role !== "viewer";
+
+  const handleCameraDetect = (code) => {
+    const product = products.find(p => p.barcode === code || p.sku === code);
+    if (product) {
+      setForm(f => ({ ...f, productId: product.id }));
+      setShowCamera(false);
+      setModal(true);
+      notify(`✓ ${product.name} bulundu`);
+    } else {
+      notify(`Barkod bulunamadı: ${code}`, "error");
+    }
+  };
 
   const filtered = movements.filter(m => {
     const s = search.toLowerCase();
@@ -1248,13 +1454,18 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
           <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>{movements.length} hareket kaydı — geriye dönük silinemez</p>
         </div>
         {canEdit && (
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(0,0,0,0.03)", border: "1px solid #e7e5e4", borderRadius: 9, color: "#78716c", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-              <Icon name="download" size={15} /> Excel İndir
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={exportCSV} className="btn-hover" style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#78716c", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+              <Icon name="download" size={14} /> Excel İndir
+            </button>
+            <button onClick={() => setShowCamera(true)} className="btn-hover"
+              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Kamera ile Tara
             </button>
             <button onClick={() => { setForm({ productId: "", type: "Giriş", quantity: "", note: "" }); setModal(true); }} className="btn-hover"
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "#18181b", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
-              <Icon name="plus" size={15} /> Yeni Hareket
+              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+              <Icon name="plus" size={14} /> Yeni Hareket
             </button>
           </div>
         )}
@@ -1304,6 +1515,8 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: "48px 0", color: "#a8a29e" }}>Sonuç bulunamadı</div>}
       </div>
 
+      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />}
+
       {modal && (
         <Modal title="Yeni Stok Hareketi" onClose={() => setModal(false)}
           footer={<><button onClick={() => setModal(false)} style={btnStyle("ghost")}>İptal</button><button onClick={saveMove} style={btnStyle("primary")}>Kaydet</button></>}>
@@ -1337,12 +1550,15 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
 }
 
 // ─── COUNTING PAGE ────────────────────────────────────────────────────────────
+
+
 function CountingPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
   const [phase, setPhase] = useState("setup"); // setup | counting | results
   const [filter, setFilter] = useState({ category: "", brand: "" });
   const [countList, setCountList] = useState({}); // { productId: count }
   const [barcodeInput, setBarcodeInput] = useState("");
   const [countName, setCountName] = useState(`Sayım ${new Date().toLocaleDateString("tr-TR")}`);
+  const [showCamera, setShowCamera] = useState(false);
   const barcodeRef = useRef(null);
 
   const canEdit = user.role !== "viewer";
@@ -1370,6 +1586,18 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         notify("Ürün bu sayım listesinde değil veya bulunamadı", "error");
         setBarcodeInput("");
       }
+    }
+  };
+
+  const handleCameraDetect = (code) => {
+    const product = products.find(p => p.barcode === code || p.sku === code);
+    if (product && countList.hasOwnProperty(product.id)) {
+      setCountList(prev => ({ ...prev, [product.id]: (prev[product.id] || 0) + 1 }));
+      notify(`✓ ${product.name} — ${(countList[product.id] || 0) + 1} adet`);
+    } else if (product) {
+      notify("Bu ürün sayım listesinde değil", "error");
+    } else {
+      notify(`Barkod bulunamadı: ${code}`, "error");
     }
   };
 
@@ -1441,6 +1669,9 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
 
   if (phase === "counting") return (
     <div>
+      {showCamera && (
+        <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🔍 {countName}</h1>
@@ -1453,14 +1684,23 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         </div>
       </div>
 
-      <div style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 12, padding: "14px 18px", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
-        <Icon name="scan" size={20} />
+      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />}
+
+      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 9, background: "#dcfce7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Icon name="scan" size={18} color="#16a34a" />
+        </div>
         <div style={{ flex: 1 }}>
-          <div style={{ color: "#60a5fa", fontSize: 13, marginBottom: 4 }}>Barkod Okuyucu — Enter'a basın veya okuyucu ile tara</div>
+          <div style={{ color: "#15803d", fontSize: 12, fontWeight: 600, marginBottom: 5 }}>Barkod Okuyucu</div>
           <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={handleBarcode}
             placeholder="Barkod veya SKU girin, Enter'a basın..."
-            style={{ width: "100%", background: "#f0eeed", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 14, outline: "none" }} />
+            style={{ width: "100%", background: "#fff", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 12px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
         </div>
+        <button onClick={() => setShowCamera(true)}
+          style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Kamera ile Tara
+        </button>
       </div>
 
       <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, overflow: "hidden" }}>
