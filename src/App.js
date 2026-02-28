@@ -385,7 +385,8 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
   const totalSaleValue = products.reduce((s, p) => s + (p.stock * (p.salePrice || 0)), 0);
   const totalPotentialProfit = products.reduce((s, p) => {
     if (!p.costPrice || !p.salePrice) return s;
-    const saleExVat = p.salePrice / (1 + (p.vatRate || 20) / 100);
+    const vatRate = (Number(p.vatRate) > 0 && Number(p.vatRate) <= 100) ? Number(p.vatRate) : 20;
+    const saleExVat = p.salePrice / (1 + vatRate / 100);
     return s + (p.stock * (saleExVat - p.costPrice));
   }, 0);
   const todayMoves = movements.filter(m => new Date(m.createdAt).toDateString() === new Date().toDateString());
@@ -1017,10 +1018,11 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 <td style={{ padding: "13px 16px", color: "#1c1917", fontSize: 13 }}>{p.salePrice > 0 ? `₺${Number(p.salePrice).toFixed(2)}` : "-"}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13 }}>{(() => {
                   if (!p.costPrice || !p.salePrice) return <span style={{ color: "#a8a29e" }}>-</span>;
-                  const saleExVat = Number(p.salePrice) / (1 + (p.vatRate || 20) / 100);
-                  const margin = ((saleExVat - Number(p.costPrice)) / saleExVat * 100).toFixed(1);
-                  const col = margin >= 0 ? "#16a34a" : "#dc2626";
-                  return <span style={{ color: col, fontWeight: 600 }}>{margin}%</span>;
+                  const vatRate = (Number(p.vatRate) > 0 && Number(p.vatRate) <= 100) ? Number(p.vatRate) : 20;
+                  const saleExVat = Number(p.salePrice) / (1 + vatRate / 100);
+                  const marginVal = (saleExVat - Number(p.costPrice)) / saleExVat * 100;
+                  const col = marginVal >= 0 ? "#16a34a" : "#dc2626";
+                  return <span style={{ color: col, fontWeight: 600 }}>{marginVal.toFixed(1)}%</span>;
                 })()}</td>
                 <td style={{ padding: "13px 16px", fontWeight: 700, fontSize: 18, color: p.stock === 0 ? "#ef4444" : p.stock <= p.minStock ? "#f97316" : "#1c1917" }}>{p.stock}</td>
                 <td style={{ padding: "13px 16px", color: "#a8a29e", fontSize: 13 }}>{p.minStock}</td>
@@ -1579,7 +1581,8 @@ function ReportsPage({ products, movements, criticalProducts }) {
   // Kâr analizi hesaplamaları
   const productsWithPrice = products.filter(p => p.costPrice > 0 && p.salePrice > 0);
   const profitData = productsWithPrice.map(p => {
-    const saleExVat = p.salePrice / (1 + (p.vatRate || 20) / 100);
+    const vatRate = (Number(p.vatRate) > 0 && Number(p.vatRate) <= 100) ? Number(p.vatRate) : 20;
+    const saleExVat = p.salePrice / (1 + vatRate / 100);
     const profitPerUnit = saleExVat - p.costPrice;
     const margin = saleExVat > 0 ? (profitPerUnit / saleExVat * 100) : 0;
     const totalProfit = p.stock * profitPerUnit;
