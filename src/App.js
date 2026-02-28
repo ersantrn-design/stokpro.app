@@ -439,19 +439,6 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
   };
 
   const StatCard = ({ title, value, sub, color, icon }) => (
-    <div className="card-hover stat-card" style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em" }}>{title}</div>
-        <div style={{ width: 32, height: 32, background: color === "#dc2626" ? "#fef2f2" : "#f5f5f4", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: color || "#78716c" }}>
-          <Icon name={icon} size={15} />
-        </div>
-      </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: "#18181b", letterSpacing: "-0.03em", lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-
-  const StatCard = ({ title, value, sub, color, icon }) => (
     <div className="card-hover" style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
         <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em" }}>{title}</div>
