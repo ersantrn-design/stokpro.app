@@ -54,7 +54,7 @@ const mapOrderItem = (r) => ({
 });
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
-const Icon = ({ name, size = 18 }) => {
+const Icon = ({ name, size = 18, color }) => {
   const icons = {
     dashboard: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
     products: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>,
@@ -81,7 +81,9 @@ const Icon = ({ name, size = 18 }) => {
     truck: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
     refresh: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
   };
-  return icons[name] || null;
+  const el = icons[name] || null;
+  if (!el || !color) return el;
+  return <span style={{ color }}>{el}</span>;
 };
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -291,8 +293,8 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
         
-        body { font-family: 'Plus Jakarta Sans', sans-serif !important; background: var(--bg) !important; }
-        input, select, textarea, button { font-family: 'Plus Jakarta Sans', sans-serif; }
+        body { font-family: 'Inter', sans-serif !important; background: var(--bg) !important; }
+        input, select, textarea, button { font-family: 'Inter', sans-serif; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 99px; }
@@ -389,6 +391,53 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
   const todayMoves = movements.filter(m => new Date(m.createdAt).toDateString() === new Date().toDateString());
   const recentMoves = [...movements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6);
 
+  // Son 7 gun hareket verileri
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    const key = d.toDateString();
+    const label = d.toLocaleDateString("tr-TR", { weekday: "short", day: "numeric" });
+    const giris = movements.filter(m => m.type === "Giriş" && new Date(m.createdAt).toDateString() === key).reduce((s, m) => s + m.quantity, 0);
+    const cikis = movements.filter(m => m.type === "Çıkış" && new Date(m.createdAt).toDateString() === key).reduce((s, m) => s + m.quantity, 0);
+    return { label, giris, cikis };
+  });
+  const maxVal = Math.max(...last7.map(d => Math.max(d.giris, d.cikis)), 1);
+
+  // Kategori dagilimi
+  const catMap = {};
+  products.forEach(p => { const c = p.category || "Diğer"; catMap[c] = (catMap[c] || 0) + 1; });
+  const catData = Object.entries(catMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const catTotal = catData.reduce((s, [, v]) => s + v, 0);
+  const catColors = ["#18181b", "#57534e", "#a8a29e", "#d6d3d1", "#78716c", "#44403c"];
+
+  // Donut chart SVG
+  const DonutChart = ({ data, total, colors }) => {
+    const size = 144; const r = 52; const cx = size / 2; const cy = size / 2;
+    const circumference = 2 * Math.PI * r;
+    let offset = 0;
+    const slices = data.map(([label, val], i) => {
+      const pct = val / total;
+      const dash = pct * circumference;
+      const gap = circumference - dash;
+      const sl = { label, val, pct, dash, gap, offset, color: colors[i] };
+      offset += dash;
+      return sl;
+    });
+    return (
+      <svg width={size} height={size} viewBox={"0 0 " + size + " " + size}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f5f5f4" strokeWidth="22" />
+        {slices.map((s, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+            stroke={s.color} strokeWidth="22"
+            strokeDasharray={s.dash + " " + s.gap}
+            strokeDashoffset={-s.offset + circumference * 0.25}
+          />
+        ))}
+        <text x={cx} y={cy - 5} textAnchor="middle" style={{ fontSize: 20, fontWeight: 700, fill: "#18181b", fontFamily: "Inter, sans-serif" }}>{total}</text>
+        <text x={cx} y={cy + 13} textAnchor="middle" style={{ fontSize: 10, fill: "#a8a29e", fontFamily: "Inter, sans-serif" }}>ürün</text>
+      </svg>
+    );
+  };
+
   const StatCard = ({ title, value, sub, color, icon }) => (
     <div className="card-hover stat-card" style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
@@ -402,95 +451,188 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
     </div>
   );
 
+  const StatCard = ({ title, value, sub, color, icon }) => (
+    <div className="card-hover" style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em" }}>{title}</div>
+        <div style={{ width: 28, height: 28, background: color === "#dc2626" ? "#fef2f2" : "#f5f5f4", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: color || "#78716c" }}>
+          <Icon name={icon} size={14} />
+        </div>
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: "#18181b", letterSpacing: "-0.03em", lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, color: "#18181b", letterSpacing: "-0.03em" }}>Kontrol Paneli</h1>
         <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>{new Date().toLocaleDateString("tr-TR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 16 }}>
+      {/* Stat Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
         <StatCard title="Toplam Ürün" value={products.length} sub="Tanımlı ürün" icon="products" color="#3b82f6" />
         <StatCard title="Toplam Stok" value={totalStock.toLocaleString("tr-TR")} sub="Tüm ürünler" icon="inventory" color="#44403c" />
-        <StatCard title="Kritik Stok" value={criticalProducts.length} sub="Min. seviye altı" icon="warning" color={criticalProducts.length > 0 ? "#ef4444" : "#22c55e"} />
+        <StatCard title="Kritik Stok" value={criticalProducts.length} sub="Min. seviye altı" icon="warning" color={criticalProducts.length > 0 ? "#dc2626" : "#16a34a"} />
         <StatCard title="Bugünkü Hareket" value={todayMoves.length} sub="Giriş/Çıkış" icon="movements" color="#f59e0b" />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
-        <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, padding: "18px 22px" }}>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Stok Maliyet Değeri</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#1c1917" }}>₺{totalStockValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, marginTop: 4 }}>Stok × Maliyet Fiyatı</div>
+
+      {/* Financial Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Stok Maliyet Değeri</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b", letterSpacing: "-0.02em" }}>₺{totalStockValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4 }}>Stok × Maliyet Fiyatı</div>
         </div>
-        <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, padding: "18px 22px" }}>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Satış Değeri</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#60a5fa" }}>₺{totalSaleValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, marginTop: 4 }}>Stok × Satış Fiyatı (KDV Dahil)</div>
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Satış Değeri</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#2563eb", letterSpacing: "-0.02em" }}>₺{totalSaleValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4 }}>Stok × Satış Fiyatı (KDV Dahil)</div>
         </div>
-        <div style={{ background: "#fafaf9", border: `1px solid ${totalPotentialProfit >= 0 ? "rgba(74,222,128,0.2)" : "rgba(248,113,113,0.2)"}`, borderRadius: 14, padding: "18px 22px" }}>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Kâr</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: totalPotentialProfit >= 0 ? "#16a34a" : "#dc2626" }}>₺{totalPotentialProfit.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4, marginTop: 4 }}>Tüm stok satılsıydı (KDV Hariç)</div>
+        <div style={{ background: "#fff", border: `1px solid ${totalPotentialProfit >= 0 ? "#bbf7d0" : "#fecaca"}`, borderRadius: 11, padding: "16px 18px" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Potansiyel Kâr</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: totalPotentialProfit >= 0 ? "#16a34a" : "#dc2626", letterSpacing: "-0.02em" }}>₺{totalPotentialProfit.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div style={{ color: "#a8a29e", fontSize: 11.5, marginTop: 4 }}>Tüm stok satılsıydı (KDV Hariç)</div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {/* Recent movements */}
-        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Son Hareketler</h3>
-            <button onClick={() => setPage("movements")} style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: 13 }}>Tümü →</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {recentMoves.map(m => (
-              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#fafaf9", borderRadius: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: m.type === "Giriş" ? "#16a34a20" : m.type === "Çıkış" ? "#dc262620" : "#f59e0b20", display: "flex", alignItems: "center", justifyContent: "center", color: m.type === "Giriş" ? "#22c55e" : m.type === "Çıkış" ? "#dc2626" : "#f59e0b" }}>
-                    <Icon name={m.type === "Giriş" ? "trending_up" : "trending_down"} size={14} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{m.productName}</div>
-                    <div style={{ fontSize: 11, color: "#a8a29e" }}>{m.user} · {formatDate(m.createdAt)}</div>
-                  </div>
-                </div>
-                <span style={{ color: m.type === "Giriş" ? "#22c55e" : "#dc2626", fontWeight: 600, fontSize: 14 }}>{m.type === "Giriş" ? "+" : "-"}{m.quantity}</span>
+      {/* Charts Row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 12, marginBottom: 12 }}>
+
+        {/* Line Chart - Son 7 Gün Hareketler */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>Stok Hareketleri</div>
+              <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>Son 7 gün</div>
+            </div>
+            <div style={{ display: "flex", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a" }} />
+                <span style={{ fontSize: 11.5, color: "#78716c" }}>Giriş</span>
               </div>
-            ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#dc2626" }} />
+                <span style={{ fontSize: 11.5, color: "#78716c" }}>Çıkış</span>
+              </div>
+            </div>
           </div>
+          <div style={{ position: "relative", height: 140 }}>
+            {/* Grid lines */}
+            {[0, 1, 2, 3, 4].map(i => (
+              <div key={i} style={{ position: "absolute", left: 0, right: 0, bottom: i * 25 + "%", borderTop: "1px dashed #f0eeed", zIndex: 0 }} />
+            ))}
+            {/* Bars */}
+            <div style={{ display: "flex", alignItems: "flex-end", height: "100%", gap: 6, position: "relative", zIndex: 1 }}>
+              {last7.map((day, i) => (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, height: "100%", justifyContent: "flex-end" }}>
+                  <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 116 }}>
+                    <div title={"Giriş: " + day.giris} style={{ flex: 1, background: "#dcfce7", borderRadius: "3px 3px 0 0", height: (day.giris / maxVal * 100) + "%", minHeight: day.giris > 0 ? 3 : 0, transition: "height 0.4s ease", position: "relative" }}>
+                      {day.giris > 0 && <div style={{ position: "absolute", top: -18, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>{day.giris}</div>}
+                    </div>
+                    <div title={"Çıkış: " + day.cikis} style={{ flex: 1, background: "#fee2e2", borderRadius: "3px 3px 0 0", height: (day.cikis / maxVal * 100) + "%", minHeight: day.cikis > 0 ? 3 : 0, transition: "height 0.4s ease", position: "relative" }}>
+                      {day.cikis > 0 && <div style={{ position: "absolute", top: -18, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: "#dc2626", fontWeight: 600, whiteSpace: "nowrap" }}>{day.cikis}</div>}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#a8a29e", textAlign: "center", lineHeight: 1.2 }}>{day.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Donut Chart - Kategori Dağılımı */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>Kategori Dağılımı</div>
+            <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>Ürün sayısına göre</div>
+          </div>
+          {catData.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: "#a8a29e", fontSize: 13 }}>Veri yok</div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+              <DonutChart data={catData} total={catTotal} colors={catColors} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+                {catData.map(([label, val], i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: catColors[i], flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 11.5, color: "#44403c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: "#18181b" }}>{val}</div>
+                    <div style={{ fontSize: 10.5, color: "#a8a29e", width: 30, textAlign: "right" }}>{Math.round(val / catTotal * 100)}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Row: Recent + Critical */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {/* Recent movements */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>Son Hareketler</div>
+            <button onClick={() => setPage("movements")} style={{ background: "none", border: "none", color: "#78716c", cursor: "pointer", fontSize: 12.5, fontWeight: 500 }}>Tümü →</button>
+          </div>
+          {recentMoves.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: "#a8a29e", fontSize: 13 }}>Henüz hareket yok</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentMoves.map(m => (
+                <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 10px", background: "#fafaf9", borderRadius: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 7, background: m.type === "Giriş" ? "#f0fdf4" : "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name={m.type === "Giriş" ? "trending_up" : "trending_down"} size={13} color={m.type === "Giriş" ? "#16a34a" : "#dc2626"} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: "#1c1917" }}>{m.productName}</div>
+                      <div style={{ fontSize: 11, color: "#a8a29e" }}>{m.user} · {formatDate(m.createdAt)}</div>
+                    </div>
+                  </div>
+                  <span style={{ color: m.type === "Giriş" ? "#16a34a" : "#dc2626", fontWeight: 600, fontSize: 13 }}>{m.type === "Giriş" ? "+" : "-"}{m.quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Critical stocks */}
-        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>⚠️ Kritik Stok Uyarıları</h3>
-            <button onClick={() => setPage("products")} style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: 13 }}>Tümü →</button>
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>Kritik Stok</div>
+              {criticalProducts.length > 0 && <span style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 99, padding: "1px 7px", fontSize: 11, fontWeight: 600 }}>{criticalProducts.length}</span>}
+            </div>
+            <button onClick={() => setPage("products")} style={{ background: "none", border: "none", color: "#78716c", cursor: "pointer", fontSize: 12.5, fontWeight: 500 }}>Tümü →</button>
           </div>
           {criticalProducts.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "#22c55e" }}>
-              <Icon name="check" size={32} /><div style={{ marginTop: 10, fontSize: 14 }}>Tüm stoklar yeterli seviyede</div>
+            <div style={{ textAlign: "center", padding: "30px 0" }}>
+              <div style={{ fontSize: 22, marginBottom: 6 }}>✅</div>
+              <div style={{ fontSize: 13, color: "#a8a29e" }}>Tüm stoklar yeterli seviyede</div>
             </div>
           ) : (
             <div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {(showAllCritical ? criticalProducts : criticalProducts.slice(0, 5)).map(p => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9 }}>
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 2 }}>Min: {p.minStock} · Mevcut: {p.stock}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: "#1c1917" }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 1 }}>Min: {p.minStock} · Mevcut: {p.stock}</div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ color: p.stock === 0 ? "#dc2626" : "#d97706", fontWeight: 700, fontSize: 18 }}>{p.stock}</div>
+                      <div style={{ color: p.stock === 0 ? "#dc2626" : "#d97706", fontWeight: 700, fontSize: 17 }}>{p.stock}</div>
                       <div style={{ fontSize: 10, color: "#a8a29e" }}>adet</div>
                     </div>
                   </div>
                 ))}
               </div>
               {criticalProducts.length > 5 && (
-                <button
-                  onClick={() => setShowAllCritical(v => !v)}
-                  style={{ marginTop: 10, width: "100%", padding: "9px", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, color: "#78716c", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all 0.12s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                  onMouseEnter={e => { e.target.style.background = "#f5f5f4"; e.target.style.color = "#1c1917"; }}
-                  onMouseLeave={e => { e.target.style.background = "#fafaf9"; e.target.style.color = "#78716c"; }}
-                >
+                <button onClick={() => setShowAllCritical(v => !v)}
+                  style={{ marginTop: 8, width: "100%", padding: "8px", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, color: "#78716c", fontSize: 12.5, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                   {showAllCritical ? "▲ Daha az göster" : `▼ ${criticalProducts.length - 5} ürün daha göster`}
                 </button>
               )}
