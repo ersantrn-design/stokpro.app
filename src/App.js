@@ -423,12 +423,12 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
       return sl;
     });
     return (
-      <svg width={size} height={size} viewBox={"0 0 " + size + " " + size}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f5f5f4" strokeWidth="22" />
         {slices.map((s, i) => (
           <circle key={i} cx={cx} cy={cy} r={r} fill="none"
             stroke={s.color} strokeWidth="22"
-            strokeDasharray={s.dash + " " + s.gap}
+            strokeDasharray={`${s.dash} ${s.gap}`}
             strokeDashoffset={-s.offset + circumference * 0.25}
           />
         ))}
