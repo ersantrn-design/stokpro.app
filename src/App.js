@@ -55,7 +55,7 @@ const mapOrderItem = (r) => ({
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 // ─── CAMERA BARCODE SCANNER ───────────────────────────────────────────────────
-function CameraScanner({ onDetected, onClose }) {
+function CameraScanner({ onDetected, onClose, recentScans = [] }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -170,30 +170,30 @@ function CameraScanner({ onDetected, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      {/* Header */}
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)", zIndex: 10 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start" }}>
+      {/* Header - compact top bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#000", borderBottom: "1px solid rgba(255,255,255,0.1)", flexShrink: 0 }}>
         <div style={{ color: "#fff" }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Barkod Tara</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
-            {libLoaded ? "Kamerayı barkoda doğrultun" : "Kütüphane yükleniyor..."}
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Barkod Tara</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>
+            {libLoaded ? "Kamerayı barkoda doğrultun" : "Yükleniyor..."}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={switchCamera} style={{ width: 40, height: 40, borderRadius: 99, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <button onClick={switchCamera} style={{ width: 36, height: 36, borderRadius: 99, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
-          <button onClick={toggleTorch} style={{ width: 40, height: 40, borderRadius: 99, background: torchOn ? "rgba(255,220,50,0.25)" : "rgba(255,255,255,0.12)", border: torchOn ? "1px solid rgba(255,220,50,0.4)" : "1px solid rgba(255,255,255,0.15)", color: torchOn ? "#ffd932" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <button onClick={toggleTorch} style={{ width: 36, height: 36, borderRadius: 99, background: torchOn ? "rgba(255,220,50,0.2)" : "rgba(255,255,255,0.1)", border: torchOn ? "1px solid rgba(255,220,50,0.4)" : "1px solid rgba(255,255,255,0.12)", color: torchOn ? "#ffd932" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </button>
-          <button onClick={() => { stopCamera(); onClose(); }} style={{ width: 40, height: 40, borderRadius: 99, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <button onClick={() => { stopCamera(); onClose(); }} style={{ width: 36, height: 36, borderRadius: 99, background: "rgba(220,38,38,0.2)", border: "1px solid rgba(220,38,38,0.3)", color: "#f87171", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
 
       {/* Video area */}
-      <div style={{ position: "relative", width: "min(100vw, 480px)", aspectRatio: "4/3", background: "#000", overflow: "hidden" }}>
+      <div style={{ position: "relative", width: "100%", maxWidth: 480, margin: "0 auto", aspectRatio: "4/3", background: "#000", overflow: "hidden", flexShrink: 0 }}>
         <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline />
 
         {/* Scan frame overlay */}
@@ -239,20 +239,50 @@ function CameraScanner({ onDetected, onClose }) {
         )}
       </div>
 
-      {/* Result display */}
-      <div style={{ marginTop: 18, padding: "14px 24px", background: "rgba(255,255,255,0.07)", border: `1px solid ${lastResult ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, minWidth: 280, textAlign: "center", transition: "border-color 0.3s" }}>
-        {lastResult ? (
-          <>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>✓ Barkod Okundu</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#22c55e", fontFamily: "monospace", letterSpacing: "0.06em" }}>{lastResult}</div>
-          </>
-        ) : (
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>Barkod bekleniyor...</div>
-        )}
-      </div>
+      {/* Bottom panel - last scanned + close */}
+      <div style={{ flex: 1, overflowY: "auto", background: "#111", display: "flex", flexDirection: "column" }}>
+        {/* Last result bar */}
+        <div style={{ padding: "12px 16px", background: lastResult ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 12, minHeight: 56 }}>
+          {lastResult ? (
+            <>
+              <div style={{ width: 32, height: 32, borderRadius: 99, background: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 2 }}>Son Okunan</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#22c55e", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastResult}</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ width: 32, height: 32, borderRadius: 99, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="21" y2="14"/><line x1="14" y1="18" x2="21" y2="18"/><line x1="14" y1="21" x2="17" y2="21"/></svg>
+              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>Barkod bekleniyor...</div>
+            </>
+          )}
+        </div>
 
-      <div style={{ marginTop: 10, color: "rgba(255,255,255,0.25)", fontSize: 11 }}>
-        Okuma sonrası panel otomatik güncellenir
+        {/* Scanned list */}
+        {recentScans && recentScans.length > 0 && (
+          <div style={{ padding: "10px 16px 6px", flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              Son Tarananlar ({recentScans.length})
+            </div>
+            {recentScans.slice(0, 5).map((s, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: i === 0 ? "#fff" : "rgba(255,255,255,0.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                  <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", marginTop: 1 }}>{s.barcode}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e" }}>{s.counted}</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>adet</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <style>{`
@@ -1653,7 +1683,7 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: "48px 0", color: "#a8a29e" }}>Sonuç bulunamadı</div>}
       </div>
 
-      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />}
+      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} recentScans={lastScanned} />}
 
       {modal && (
         <Modal title="Yeni Stok Hareketi" onClose={() => setModal(false)}
@@ -1832,7 +1862,7 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
 
     return (
     <div>
-      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />}
+      {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} recentScans={lastScanned} />}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
