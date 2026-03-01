@@ -513,15 +513,13 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
         irsaliye_no: irsaliyeNo,
         from_location: fromLoc,
         to_location: toLoc,
-        items: itemsData,
-        comments,
         username: user.username,
         status: asDraft ? "taslak" : "tamamlandı",
         product_id: transferItems[0]?.productId,
         product_name: itemsData.map(i => i.productName).filter(Boolean).join(", "),
         product_sku: "",
         quantity: transferItems.reduce((s, i) => s + i.quantity, 0),
-        note: `İrsaliye: ${irsaliyeNo}`,
+        note: `İrsaliye: ${irsaliyeNo} | Ürünler: ${itemsData.map(i => `${i.productName}(${i.quantity})`).join(", ")}`,
       };
       const { data: tData, error: tErr } = await supabase.from("transfers").insert([transferRow]).select().single();
       if (tErr) throw tErr;
