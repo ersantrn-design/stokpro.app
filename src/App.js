@@ -479,17 +479,21 @@ export default function App() {
 
   const criticalProducts = products.filter(p => p.stock <= p.minStock);
 
-  const pages = {
-    dashboard: <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />,
-    products: <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />,
-    movements: <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />,
-    counting: <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />,
-    reports: <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />,
-    settings: <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} />,
-    purchasing: <PurchasingPage suppliers={suppliers} setSuppliers={setSuppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} />,
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const renderPage = () => {
+    switch(page) {
+      case "dashboard": return <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />;
+      case "products": return <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
+      case "movements": return <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />;
+      case "counting": return <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
+      case "reports": return <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />;
+      case "settings": return <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} />;
+      case "purchasing": return <PurchasingPage suppliers={suppliers} setSuppliers={setSuppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} />;
+      default: return <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />;
+    }
   };
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navItems = [
     { id: "dashboard", label: "Özet", icon: "dashboard" },
     { id: "products", label: "Ürünler", icon: "products" },
@@ -603,7 +607,7 @@ export default function App() {
 
       {/* Main */}
       <main className="main-content" style={{ flex: 1, marginLeft: 220, padding: "28px 32px", overflow: "auto", background: "#fafaf9", minHeight: "100vh" }}>
-        {pages[page]}
+        {renderPage()}
       </main>
 
       {/* Notification */}
