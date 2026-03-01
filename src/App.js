@@ -2364,37 +2364,55 @@ function ReportsPage({ products, movements, criticalProducts }) {
 function ListManager({ title, items, onSave, color }) {
   const [list, setList] = useState([...items]);
   const [newItem, setNewItem] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const save = async (updated) => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await onSave(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch(e) {}
+    setSaving(false);
+  };
 
   const add = () => {
     const v = newItem.trim();
-    if (!v) return;
-    if (list.includes(v)) return;
+    if (!v || list.includes(v)) return;
     const updated = [...list, v];
     setList(updated);
-    onSave(updated);
+    save(updated);
     setNewItem("");
   };
 
   const remove = (item) => {
     const updated = list.filter(i => i !== item);
     setList(updated);
-    onSave(updated);
+    save(updated);
   };
 
   return (
-    <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, padding: 20 }}>
-      <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#1c1917" }}>{title}</h3>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && add()}
-          placeholder={`Yeni ${title.slice(0, -2).toLowerCase()} ekle...`}
-          style={{ flex: 1, background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "8px 12px", color: "#1c1917", fontSize: 13, outline: "none" }} />
-        <button onClick={add} style={{ background: `${color}20`, border: `1px solid ${color}40`, borderRadius: 8, padding: "8px 12px", color: color, cursor: "pointer", fontWeight: 600, fontSize: 18 }}>+</button>
+    <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#1c1917" }}>{title}</h3>
+        <div style={{ fontSize: 11.5, fontWeight: 500 }}>
+          {saving && <span style={{ color: "#a8a29e" }}>⏳ Kaydediliyor...</span>}
+          {saved && !saving && <span style={{ color: "#16a34a" }}>✓ Kaydedildi</span>}
+        </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && add()}
+          placeholder={`Yeni ekle...`}
+          style={{ flex: 1, background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "8px 12px", color: "#1c1917", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+        <button onClick={add} style={{ background: "#18181b", border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 16 }}>+</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280, overflowY: "auto" }}>
         {list.map(item => (
-          <div key={item} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fafaf9", borderRadius: 8, padding: "7px 12px" }}>
+          <div key={item} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fafaf9", border: "1px solid #f0eeed", borderRadius: 8, padding: "7px 12px" }}>
             <span style={{ color: "#1c1917", fontSize: 13 }}>{item}</span>
-            <button onClick={() => remove(item)} style={{ background: "#fef2f2", border: "none", borderRadius: 6, padding: "3px 7px", color: "#dc2626", cursor: "pointer", fontSize: 13 }}>✕</button>
+            <button onClick={() => remove(item)} style={{ background: "transparent", border: "none", borderRadius: 6, padding: "2px 6px", color: "#dc2626", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
         ))}
         {list.length === 0 && <div style={{ color: "#a8a29e", fontSize: 13, textAlign: "center", padding: "20px 0" }}>Henüz kayıt yok</div>}
