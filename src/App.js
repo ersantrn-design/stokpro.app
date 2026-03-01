@@ -1559,6 +1559,8 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
   const [barcodeInput, setBarcodeInput] = useState("");
   const [countName, setCountName] = useState(`Sayım ${new Date().toLocaleDateString("tr-TR")}`);
   const [showCamera, setShowCamera] = useState(false);
+  const [lastScanned, setLastScanned] = useState([]); // [{id, name, sku, barcode, stock, counted, time}]
+  const [countSearch, setCountSearch] = useState("");
   const barcodeRef = useRef(null);
 
   const canEdit = user.role !== "viewer";
@@ -1580,7 +1582,15 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
     if (e.key === "Enter" && barcodeInput.trim()) {
       const product = products.find(p => p.barcode === barcodeInput.trim() || p.sku === barcodeInput.trim());
       if (product && countList.hasOwnProperty(product.id)) {
-        setCountList(prev => ({ ...prev, [product.id]: (prev[product.id] || 0) + 1 }));
+        setCountList(prev => {
+          const newCount = (prev[product.id] || 0) + 1;
+          setLastScanned(ls => [{
+            id: product.id, name: product.name, sku: product.sku,
+            barcode: product.barcode, stock: product.stock,
+            counted: newCount, time: new Date()
+          }, ...ls.slice(0, 19)]);
+          return { ...prev, [product.id]: newCount };
+        });
         setBarcodeInput("");
       } else {
         notify("Ürün bu sayım listesinde değil veya bulunamadı", "error");
@@ -1592,8 +1602,15 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
   const handleCameraDetect = (code) => {
     const product = products.find(p => p.barcode === code || p.sku === code);
     if (product && countList.hasOwnProperty(product.id)) {
-      setCountList(prev => ({ ...prev, [product.id]: (prev[product.id] || 0) + 1 }));
-      notify(`✓ ${product.name} — ${(countList[product.id] || 0) + 1} adet`);
+      setCountList(prev => {
+        const newCount = (prev[product.id] || 0) + 1;
+        setLastScanned(ls => [{
+          id: product.id, name: product.name, sku: product.sku,
+          barcode: product.barcode, stock: product.stock,
+          counted: newCount, time: new Date()
+        }, ...ls.slice(0, 19)]);
+        return { ...prev, [product.id]: newCount };
+      });
     } else if (product) {
       notify("Bu ürün sayım listesinde değil", "error");
     } else {
@@ -1667,81 +1684,169 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
     </div>
   );
 
-  if (phase === "counting") return (
-    <div>
-      {showCamera && (
-        <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🔍 {countName}</h1>
-          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>{filteredProducts.length} ürün sayılıyor</p>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => setPhase("results")} className="btn-hover" style={{ padding: "10px 20px", background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, color: "#16a34a", cursor: "pointer", fontWeight: 600, transition: "all 0.15s" }}>
-            Sayımı Tamamla →
-          </button>
-        </div>
-      </div>
+  if (phase === "counting") {
+    const visibleProducts = filteredProducts.filter(p =>
+      !countSearch || p.name.toLowerCase().includes(countSearch.toLowerCase()) ||
+      p.barcode?.includes(countSearch) || p.sku?.toLowerCase().includes(countSearch.toLowerCase())
+    );
+    const countedCount = Object.values(countList).filter(v => v > 0).length;
+    const totalCount = Object.values(countList).reduce((s, v) => s + v, 0);
 
+    return (
+    <div>
       {showCamera && <CameraScanner onDetected={handleCameraDetect} onClose={() => setShowCamera(false)} />}
 
-      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 9, background: "#dcfce7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Icon name="scan" size={18} color="#16a34a" />
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em", color: "#18181b" }}>{countName}</h1>
+          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>{filteredProducts.length} ürün • {countedCount} sayıldı</p>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ color: "#15803d", fontSize: 12, fontWeight: 600, marginBottom: 5 }}>Barkod Okuyucu</div>
-          <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={handleBarcode}
-            placeholder="Barkod veya SKU girin, Enter'a basın..."
-            style={{ width: "100%", background: "#fff", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 12px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
-        </div>
-        <button onClick={() => setShowCamera(true)}
-          style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-          Kamera ile Tara
+        <button onClick={() => setPhase("results")}
+          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+          Sayımı Tamamla →
         </button>
       </div>
 
-      <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #e7e5e4" }}>
-              {["Ürün", "Barkod", "Sistem Stoğu", "Sayılan Adet", ""].map(h => (
-                <th key={h} style={{ padding: "12px 14px", textAlign: "left", color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredProducts.map(p => {
-              const cnt = countList[p.id] || 0;
-              return (
-                <tr key={p.id} className="table-row" style={{ borderBottom: "1px solid rgba(255,255,255,0.03)", background: cnt > 0 ? "rgba(34,197,94,0.04)" : undefined }}>
-                  <td style={{ padding: "11px 14px" }}>
-                    <div style={{ color: "#1c1917", fontWeight: 500, fontSize: 13 }}>{p.name}</div>
-                    <div style={{ color: "#a8a29e", fontSize: 11 }}>{p.sku}</div>
-                  </td>
-                  <td style={{ padding: "11px 14px", color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontFamily: "'Space Mono', monospace" }}>{p.barcode}</td>
-                  <td style={{ padding: "11px 14px", color: "#78716c", fontWeight: 600, fontSize: 16 }}>{p.stock}</td>
-                  <td style={{ padding: "11px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => adjustCount(p.id, -1)} style={{ width: 28, height: 28, background: "#fecaca", border: "none", borderRadius: 6, color: "#dc2626", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                      <input type="number" value={cnt} onChange={e => setCount(p.id, e.target.value)}
-                        style={{ width: 64, background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 7, padding: "5px 8px", color: cnt > 0 ? "#16a34a" : "#78716c", fontSize: 16, fontWeight: 700, outline: "none", textAlign: "center" }} />
-                      <button onClick={() => adjustCount(p.id, 1)} style={{ width: 28, height: 28, background: "rgba(34,197,94,0.15)", border: "none", borderRadius: 6, color: "#16a34a", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                    </div>
-                  </td>
-                  <td style={{ padding: "11px 14px" }}>
-                    {cnt > 0 && <div style={{ color: "#16a34a", fontSize: 12 }}>✓ Sayıldı</div>}
-                  </td>
+      {/* 2 col layout: main + sidebar */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14, alignItems: "start" }}>
+
+        {/* LEFT: ürün listesi */}
+        <div>
+          {/* Barkod input bar */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "10px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="scan" size={15} color="#16a34a" />
+            </div>
+            <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={handleBarcode}
+              placeholder="Barkod veya SKU — Enter'a basın..."
+              style={{ flex: 1, background: "transparent", border: "none", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+            <button onClick={() => setShowCamera(true)}
+              style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Kamera
+            </button>
+          </div>
+
+          {/* Ürün arama */}
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <svg style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#a8a29e" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={countSearch} onChange={e => setCountSearch(e.target.value)}
+              placeholder="Ürün ara..."
+              style={{ width: "100%", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, padding: "8px 12px 8px 32px", color: "#1c1917", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+          </div>
+
+          {/* Tablo */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+                  {["Ürün", "Sayım Başlatıldığında...", "Sayılan Stok", ""].map(h => (
+                    <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                  ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {visibleProducts.map(p => {
+                  const cnt = countList[p.id] || 0;
+                  const isScanned = cnt > 0;
+                  return (
+                    <tr key={p.id} style={{ borderBottom: "1px solid #f5f5f4", background: isScanned ? "#f0fdf4" : "#fff", transition: "background 0.2s" }}>
+                      <td style={{ padding: "11px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 7, background: isScanned ? "#dcfce7" : "#f5f5f4", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            {isScanned
+                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            }
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{p.name}</div>
+                            <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 1 }}>{p.barcode && <span style={{ fontFamily: "monospace" }}>{p.barcode}</span>}{p.barcode && p.sku ? "/" : ""}{p.sku}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "11px 14px", color: "#78716c", fontSize: 15, fontWeight: 600 }}>{p.stock}</td>
+                      <td style={{ padding: "11px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <button onClick={() => adjustCount(p.id, -1)} style={{ width: 26, height: 26, background: cnt > 0 ? "#fecaca" : "#f5f5f4", border: "none", borderRadius: 6, color: cnt > 0 ? "#dc2626" : "#a8a29e", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>−</button>
+                          <input type="number" value={cnt} onChange={e => setCount(p.id, e.target.value)}
+                            style={{ width: 58, background: "#fafaf9", border: `1px solid ${isScanned ? "#bbf7d0" : "#e7e5e4"}`, borderRadius: 7, padding: "4px 6px", color: isScanned ? "#16a34a" : "#78716c", fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center", fontFamily: "inherit" }} />
+                          <button onClick={() => adjustCount(p.id, 1)} style={{ width: 26, height: 26, background: "#f0fdf4", border: "none", borderRadius: 6, color: "#16a34a", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>+</button>
+                        </div>
+                      </td>
+                      <td style={{ padding: "11px 14px" }}>
+                        {isScanned && <span style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 99, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>✓ Sayıldı</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ padding: "10px 14px", borderTop: "1px solid #f0eeed", color: "#a8a29e", fontSize: 12 }}>
+              {visibleProducts.length} ürün gösteriliyor
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT: Son Aksiyonlar */}
+        <div style={{ position: "sticky", top: 20 }}>
+          {/* Özet */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "14px 16px", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Sayım Özeti</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: "#78716c" }}>Sayılan Ürün</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#18181b" }}>{countedCount} / {filteredProducts.length}</span>
+            </div>
+            <div style={{ height: 6, background: "#f5f5f4", borderRadius: 99, overflow: "hidden", marginBottom: 10 }}>
+              <div style={{ height: "100%", background: "#18181b", borderRadius: 99, width: `${filteredProducts.length > 0 ? (countedCount / filteredProducts.length * 100) : 0}%`, transition: "width 0.3s ease" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13, color: "#78716c" }}>Toplam Adet</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#16a34a" }}>{totalCount}</span>
+            </div>
+          </div>
+
+          {/* Son Aksiyonlar */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0eeed" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#18181b" }}>Son Aksiyonlar</div>
+              <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 2 }}>
+                Sayılan Ürün Sayısı / Stok: <strong style={{ color: "#1c1917" }}>{countedCount} ürün {totalCount} stok</strong>
+              </div>
+            </div>
+            {lastScanned.length === 0 ? (
+              <div style={{ padding: "24px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 22, marginBottom: 6 }}>📦</div>
+                <div style={{ fontSize: 12.5, color: "#a8a29e" }}>Henüz ürün taranmadı</div>
+                <div style={{ fontSize: 11.5, color: "#d6d3d1", marginTop: 4 }}>Barkod okuyun veya kamera ile tarayın</div>
+              </div>
+            ) : (
+              <div>
+                {lastScanned.map((item, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #f5f5f4", background: idx === 0 ? "#f0fdf4" : "#fff", transition: "background 0.3s" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: "#1c1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                      <div style={{ fontSize: 10.5, color: "#a8a29e", marginTop: 1, fontFamily: "monospace" }}>
+                        {item.barcode || item.sku}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#a8a29e", marginTop: 1 }}>
+                        {item.time.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 10 }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{item.counted}</div>
+                      <div style={{ fontSize: 10, color: "#a8a29e" }}>/ {item.stock} stok</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
-  );
+  );}
 
   // Results phase
   return (
