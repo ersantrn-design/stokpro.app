@@ -460,6 +460,17 @@ export default function App() {
         if (users) setAppUsers(users.map(mapUser));
         if (supps) setSuppliers(supps.map(mapSupplier));
         if (orders) setPurchaseOrders(orders.map(mapOrder));
+
+        // Load shared settings (categories/brands) from Supabase
+        const { data: settingsData } = await supabase
+          .from("app_settings")
+          .select("*");
+        if (settingsData) {
+          const cats = settingsData.find(s => s.key === "categories");
+          const brnds = settingsData.find(s => s.key === "brands");
+          if (cats?.value) { setCategories(cats.value); localStorage.setItem("stokpro_cats", JSON.stringify(cats.value)); }
+          if (brnds?.value) { setBrands(brnds.value); localStorage.setItem("stokpro_brands", JSON.stringify(brnds.value)); }
+        }
       } catch (e) { notify("Veriler yüklenirken hata oluştu", "error"); }
       setLoading(false);
     };
@@ -2930,8 +2941,18 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories
 
       {tab === "lists" && isAdmin && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, maxWidth: 700 }}>
-          <ListManager title="Kategoriler" items={categories} onSave={(items) => { setCategories(items); localStorage.setItem("stokpro_cats", JSON.stringify(items)); }} color="#3b82f6" />
-          <ListManager title="Markalar" items={brands} onSave={(items) => { setBrands(items); localStorage.setItem("stokpro_brands", JSON.stringify(items)); }} color="#44403c" />
+          <ListManager title="Kategoriler" items={categories} onSave={async (items) => {
+              setCategories(items);
+              localStorage.setItem("stokpro_cats", JSON.stringify(items));
+              await supabase.from("app_settings").upsert({ key: "categories", value: items }, { onConflict: "key" });
+              notify("Kategoriler kaydedildi");
+            }} color="#3b82f6" />
+          <ListManager title="Markalar" items={brands} onSave={async (items) => {
+              setBrands(items);
+              localStorage.setItem("stokpro_brands", JSON.stringify(items));
+              await supabase.from("app_settings").upsert({ key: "brands", value: items }, { onConflict: "key" });
+              notify("Markalar kaydedildi");
+            }} color="#44403c" />
         </div>
       )}
 
