@@ -1775,14 +1775,17 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
 
 
 function CountingPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
-  const [phase, setPhase] = useState("setup"); // setup | counting | results
+  const [phase, setPhase] = useState("setup"); // setup | counting | results | history
   const [filter, setFilter] = useState({ category: "", brand: "" });
   const [countList, setCountList] = useState({}); // { productId: count }
   const [barcodeInput, setBarcodeInput] = useState("");
   const [countName, setCountName] = useState(`Sayım ${new Date().toLocaleDateString("tr-TR")}`);
   const [showCamera, setShowCamera] = useState(false);
-  const [lastScanned, setLastScanned] = useState([]); // [{id, name, sku, barcode, stock, counted, time}]
+  const [lastScanned, setLastScanned] = useState([]);
   const [countSearch, setCountSearch] = useState("");
+  const [countHistory, setCountHistory] = useState([]);
+  const [historyDetail, setHistoryDetail] = useState(null); // selected session
+  const [historyLoading, setHistoryLoading] = useState(false);
   const barcodeRef = useRef(null);
 
   const canEdit = user.role !== "viewer";
@@ -1849,12 +1852,32 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
   const diffs = filteredProducts.map(p => ({ ...p, counted: countList[p.id] || 0, diff: (countList[p.id] || 0) - p.stock }));
   const hasDiffs = diffs.some(d => d.diff !== 0);
 
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    const { data } = await supabase.from("count_sessions").select("*").order("created_at", { ascending: false }).limit(50);
+    if (data) setCountHistory(data);
+    setHistoryLoading(false);
+  };
+
   const applyDiffs = async () => {
     const changed = diffs.filter(d => d.diff !== 0);
     for (const d of changed) {
       await supabase.from("products").update({ stock: d.counted }).eq("id", d.id);
       await supabase.from("movements").insert([{ product_id: d.id, product_name: d.name, type: "Sayım Farkı", quantity: Math.abs(d.diff), prev_stock: d.stock, next_stock: d.counted, username: user.username, note: `Sayım: ${countName}` }]);
     }
+    // Save count session to history
+    const sessionData = {
+      name: countName,
+      username: user.username,
+      total_products: filteredProducts.length,
+      counted_products: Object.values(countList).filter(v => v > 0).length,
+      diff_count: changed.length,
+      items: diffs.map(d => ({ id: d.id, name: d.name, sku: d.sku, barcode: d.barcode, system_stock: d.stock, counted: d.counted, diff: d.diff })),
+      filter_category: filter.category || "Tümü",
+      filter_brand: filter.brand || "Tümü",
+      applied: true,
+    };
+    await supabase.from("count_sessions").insert([sessionData]);
     const [{ data: prods }, { data: moves }] = await Promise.all([
       supabase.from("products").select("*").order("created_at", { ascending: false }),
       supabase.from("movements").select("*").order("created_at", { ascending: false }),
@@ -1866,12 +1889,164 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
     setCountList({});
   };
 
+  const saveSessionWithoutApplying = async () => {
+    const sessionData = {
+      name: countName,
+      username: user.username,
+      total_products: filteredProducts.length,
+      counted_products: Object.values(countList).filter(v => v > 0).length,
+      diff_count: diffs.filter(d => d.diff !== 0).length,
+      items: diffs.map(d => ({ id: d.id, name: d.name, sku: d.sku, barcode: d.barcode, system_stock: d.stock, counted: d.counted, diff: d.diff })),
+      filter_category: filter.category || "Tümü",
+      filter_brand: filter.brand || "Tümü",
+      applied: false,
+    };
+    await supabase.from("count_sessions").insert([sessionData]);
+    notify("Sayım kaydedildi");
+    setPhase("setup");
+    setCountList({});
+  };
+
   const exportDiffs = () => downloadCSV(diffs.map(d => ({ "Ürün Adı": d.name, SKU: d.sku, "Sistem Stoğu": d.stock, "Sayılan": d.counted, Fark: d.diff, Durum: d.diff > 0 ? "Fazla" : d.diff < 0 ? "Eksik" : "Eşleşti" })), `sayim-${countName}.csv`);
+
+  if (phase === "history") {
+    const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <button onClick={() => setPhase("setup")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Geri
+          </button>
+          <div>
+            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Geçmiş Sayımlar</h1>
+            <p style={{ color: "#a8a29e", margin: "3px 0 0", fontSize: 13 }}>{countHistory.length} sayım kaydı</p>
+          </div>
+        </div>
+
+        {historyDetail ? (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <button onClick={() => setHistoryDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 8, color: "#44403c", cursor: "pointer", fontSize: 12 }}>
+                ← Liste
+              </button>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15, color: "#18181b" }}>{historyDetail.name}</div>
+                <div style={{ fontSize: 12, color: "#a8a29e" }}>{fmt(historyDetail.created_at)} · {historyDetail.username}</div>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <span style={{ background: historyDetail.applied ? "#f0fdf4" : "#fef9c3", border: `1px solid ${historyDetail.applied ? "#bbf7d0" : "#fef08a"}`, color: historyDetail.applied ? "#16a34a" : "#ca8a04", borderRadius: 99, padding: "3px 10px", fontSize: 12, fontWeight: 500 }}>
+                  {historyDetail.applied ? "✓ Stoğa Yansıtıldı" : "⏸ Kaydedildi"}
+                </span>
+                <button onClick={() => { const rows = historyDetail.items.map(i => ({ "Ürün": i.name, "SKU": i.sku, "Barkod": i.barcode, "Sistem Stoğu": i.system_stock, "Sayılan": i.counted, "Fark": i.diff })); exportExcel(rows, `${historyDetail.name}.xlsx`); }} style={{ padding: "6px 12px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 8, color: "#44403c", cursor: "pointer", fontSize: 12, fontWeight: 500 }}>
+                  Excel İndir
+                </button>
+              </div>
+            </div>
+
+            {/* Summary cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 16 }}>
+              {[
+                { label: "Toplam Ürün", value: historyDetail.total_products, color: "#18181b" },
+                { label: "Sayılan", value: historyDetail.counted_products, color: "#3b82f6" },
+                { label: "Fark Var", value: historyDetail.diff_count, color: historyDetail.diff_count > 0 ? "#ef4444" : "#22c55e" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 10, padding: "12px 16px", textAlign: "center" }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Detail table */}
+            <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, overflow: "hidden" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+                    {["Ürün", "Sistem Stoğu", "Sayılan", "Fark", "Durum"].map(h => (
+                      <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyDetail.items.map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid #f5f5f4", background: item.diff !== 0 ? (item.diff > 0 ? "#eff6ff" : "#fef2f2") : "#fff" }}>
+                      <td style={{ padding: "10px 14px" }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{item.name}</div>
+                        <div style={{ fontSize: 11, color: "#a8a29e", fontFamily: "monospace" }}>{item.sku}</div>
+                      </td>
+                      <td style={{ padding: "10px 14px", color: "#78716c", fontWeight: 600, fontSize: 14 }}>{item.system_stock}</td>
+                      <td style={{ padding: "10px 14px", color: "#1c1917", fontWeight: 600, fontSize: 14 }}>{item.counted}</td>
+                      <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 15, color: item.diff > 0 ? "#3b82f6" : item.diff < 0 ? "#ef4444" : "#22c55e" }}>
+                        {item.diff > 0 ? `+${item.diff}` : item.diff}
+                      </td>
+                      <td style={{ padding: "10px 14px" }}>
+                        <span style={{ background: item.diff === 0 ? "#f0fdf4" : item.diff > 0 ? "#eff6ff" : "#fef2f2", color: item.diff === 0 ? "#16a34a" : item.diff > 0 ? "#3b82f6" : "#ef4444", border: `1px solid ${item.diff === 0 ? "#bbf7d0" : item.diff > 0 ? "#bfdbfe" : "#fecaca"}`, borderRadius: 99, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>
+                          {item.diff === 0 ? "Eşleşti" : item.diff > 0 ? "Fazla" : "Eksik"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {historyLoading ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#a8a29e" }}>Yükleniyor...</div>
+            ) : countHistory.length === 0 ? (
+              <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 48, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#18181b", marginBottom: 6 }}>Henüz sayım yapılmamış</div>
+                <div style={{ fontSize: 13, color: "#a8a29e" }}>İlk sayımınızı tamamladıktan sonra burada görünecek</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {countHistory.map(s => (
+                  <div key={s.id} onClick={() => setHistoryDetail(s)}
+                    style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "#d6d3d1"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "#e7e5e4"}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, background: s.applied ? "#f0fdf4" : "#fef9c3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>
+                      {s.applied ? "✅" : "📝"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b" }}>{s.name}</div>
+                      <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>
+                        {fmt(s.created_at)} · {s.username} · {s.filter_category !== "Tümü" ? s.filter_category : "Tüm kategoriler"}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#18181b" }}>{s.counted_products} / {s.total_products} ürün</div>
+                      <div style={{ fontSize: 12, color: s.diff_count > 0 ? "#ef4444" : "#22c55e", marginTop: 2 }}>
+                        {s.diff_count > 0 ? `${s.diff_count} fark` : "Fark yok"}
+                      </div>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (phase === "setup") return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px" }}>Sayım Modülü</h1>
-      <p style={{ color: "#a8a29e", margin: "0 0 28px", fontSize: 13 }}>Barkod okuyucu veya manuel giriş ile fiziksel sayım yapın</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Sayım Modülü</h1>
+          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>Barkod okuyucu veya manuel giriş ile fiziksel sayım yapın</p>
+        </div>
+        <button onClick={() => { setPhase("history"); loadHistory(); }}
+          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500, flexShrink: 0 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Geçmiş Sayımlar
+        </button>
+      </div>
 
       <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28, maxWidth: 600 }}>
         <h3 style={{ margin: "0 0 20px", fontSize: 16 }}>Sayım Ayarları</h3>
@@ -2102,6 +2277,10 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => setPhase("counting")} style={btnStyle("ghost")}>← Geri Dön</button>
           <button onClick={exportDiffs} className="btn-hover" style={{ ...btnStyle("ghost"), display: "flex", alignItems: "center", gap: 6 }}><Icon name="download" size={14} /> Excel İndir</button>
+          <button onClick={saveSessionWithoutApplying} className="btn-hover" style={{ ...btnStyle("ghost"), display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Kaydet
+          </button>
           {canEdit && hasDiffs && (
             <button onClick={applyDiffs} className="btn-hover" style={{ ...btnStyle("primary"), display: "flex", alignItems: "center", gap: 6 }}>
               <Icon name="check" size={14} /> Farkları Stoğa Yansıt
