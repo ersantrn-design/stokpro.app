@@ -441,7 +441,7 @@ function LoginScreen({ onLogin }) {
         .table-row:nth-child(even) { background: transparent !important; }
 
         .btn-hover { transition: all 0.12s ease !important; }
-        .btn-hover:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; }
+        .table-row:hover { background: #fafaf9 !important; } .btn-hover:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; }
         .btn-hover:active { transform: translateY(0) !important; }
 
         .card-hover { transition: all 0.15s ease !important; }
@@ -1795,6 +1795,9 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
     (!filter.brand || p.brand === filter.brand)
   );
 
+  // Load history on mount
+  useEffect(() => { loadHistory(); }, []);
+
   const startCounting = () => {
     const initial = {};
     filteredProducts.forEach(p => { initial[p.id] = 0; });
@@ -1909,79 +1912,144 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
 
   const exportDiffs = () => downloadCSV(diffs.map(d => ({ "Ürün Adı": d.name, SKU: d.sku, "Sistem Stoğu": d.stock, "Sayılan": d.counted, Fark: d.diff, Durum: d.diff > 0 ? "Fazla" : d.diff < 0 ? "Eksik" : "Eşleşti" })), `sayim-${countName}.csv`);
 
-  if (phase === "history") {
-    const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+  if (phase === "setup") {
+    const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
     return (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <button onClick={() => setPhase("setup")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-            Geri
-          </button>
-          <div>
-            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Geçmiş Sayımlar</h1>
-            <p style={{ color: "#a8a29e", margin: "3px 0 0", fontSize: 13 }}>{countHistory.length} sayım kaydı</p>
-          </div>
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em", color: "#18181b" }}>Stok Sayımları</h1>
         </div>
+        {canEdit && (
+          <button onClick={() => setPhase("new")}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Stok Sayımı Ekle
+          </button>
+        )}
+      </div>
 
-        {historyDetail ? (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <button onClick={() => setHistoryDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 8, color: "#44403c", cursor: "pointer", fontSize: 12 }}>
-                ← Liste
-              </button>
+      {/* Search bar */}
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#a8a29e" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input value={countSearch} onChange={e => setCountSearch(e.target.value)} placeholder="Tabloda arama yapın"
+          style={{ width: "100%", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 12px 9px 36px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+      </div>
+
+      {/* Table */}
+      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+              {["Ad", "Başlangıç Tarihi", "Kategori", "Marka", "Durum", "Oluşturan", "Ürün Sayısı"].map(h => (
+                <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "#a8a29e", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {historyLoading ? (
+              <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#a8a29e", fontSize: 13 }}>Yükleniyor...</td></tr>
+            ) : countHistory.filter(s => !countSearch || s.name.toLowerCase().includes(countSearch.toLowerCase()) || s.username.toLowerCase().includes(countSearch.toLowerCase())).length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ padding: 48, textAlign: "center" }}>
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>📋</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", marginBottom: 4 }}>Henüz sayım yapılmamış</div>
+                  <div style={{ fontSize: 13, color: "#a8a29e" }}>Sağ üstten yeni sayım ekleyebilirsiniz</div>
+                </td>
+              </tr>
+            ) : (
+              countHistory.filter(s => !countSearch || s.name.toLowerCase().includes(countSearch.toLowerCase()) || s.username.toLowerCase().includes(countSearch.toLowerCase())).map(s => (
+                <tr key={s.id} onClick={() => setHistoryDetail(s)} className="table-row"
+                  style={{ borderBottom: "1px solid #f5f5f4", cursor: "pointer" }}>
+                  <td style={{ padding: "13px 16px" }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{s.name}</div>
+                  </td>
+                  <td style={{ padding: "13px 16px", whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: 13, color: "#1c1917" }}>{fmt(s.created_at).split(" ")[0]} {fmt(s.created_at).split(" ")[1]}</div>
+                    <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 1 }}>{fmt(s.created_at).split(" ").slice(2).join(" ")}</div>
+                  </td>
+                  <td style={{ padding: "13px 16px", fontSize: 13, color: "#78716c" }}>{s.filter_category || "Tümü"}</td>
+                  <td style={{ padding: "13px 16px", fontSize: 13, color: "#78716c" }}>{s.filter_brand || "Tümü"}</td>
+                  <td style={{ padding: "13px 16px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: s.applied ? "#f0fdf4" : "#fef9c3", color: s.applied ? "#16a34a" : "#ca8a04", border: `1px solid ${s.applied ? "#bbf7d0" : "#fef08a"}`, borderRadius: 99, padding: "3px 10px", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" }}>
+                      {s.applied ? (
+                        <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>Tamamlandı</>
+                      ) : (
+                        <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>Taslak</>
+                      )}
+                    </span>
+                  </td>
+                  <td style={{ padding: "13px 16px", fontSize: 13, color: "#78716c" }}>{s.username}</td>
+                  <td style={{ padding: "13px 16px", fontSize: 13, fontWeight: 600, color: "#18181b" }}>{s.total_products}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail modal */}
+      {historyDetail && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 800, boxShadow: "0 24px 64px rgba(0,0,0,0.2)" }}>
+            {/* Modal header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #f0eeed" }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 15, color: "#18181b" }}>{historyDetail.name}</div>
-                <div style={{ fontSize: 12, color: "#a8a29e" }}>{fmt(historyDetail.created_at)} · {historyDetail.username}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#18181b" }}>{historyDetail.name}</div>
+                <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 3 }}>{fmt(historyDetail.created_at)} · {historyDetail.username}</div>
               </div>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <span style={{ background: historyDetail.applied ? "#f0fdf4" : "#fef9c3", border: `1px solid ${historyDetail.applied ? "#bbf7d0" : "#fef08a"}`, color: historyDetail.applied ? "#16a34a" : "#ca8a04", borderRadius: 99, padding: "3px 10px", fontSize: 12, fontWeight: 500 }}>
-                  {historyDetail.applied ? "✓ Stoğa Yansıtıldı" : "⏸ Kaydedildi"}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ background: historyDetail.applied ? "#f0fdf4" : "#fef9c3", color: historyDetail.applied ? "#16a34a" : "#ca8a04", border: `1px solid ${historyDetail.applied ? "#bbf7d0" : "#fef08a"}`, borderRadius: 99, padding: "4px 12px", fontSize: 12, fontWeight: 500 }}>
+                  {historyDetail.applied ? "✓ Tamamlandı" : "⏸ Taslak"}
                 </span>
-                <button onClick={() => { const rows = historyDetail.items.map(i => ({ "Ürün": i.name, "SKU": i.sku, "Barkod": i.barcode, "Sistem Stoğu": i.system_stock, "Sayılan": i.counted, "Fark": i.diff })); exportExcel(rows, `${historyDetail.name}.xlsx`); }} style={{ padding: "6px 12px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 8, color: "#44403c", cursor: "pointer", fontSize: 12, fontWeight: 500 }}>
-                  Excel İndir
+                <button onClick={() => { const rows = historyDetail.items.map(i => ({ "Ürün": i.name, "SKU": i.sku, "Barkod": i.barcode, "Sistem Stoğu": i.system_stock, "Sayılan": i.counted, "Fark": i.diff })); exportExcel(rows, `${historyDetail.name}.xlsx`); }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                  <Icon name="download" size={13} /> Excel
+                </button>
+                <button onClick={() => setHistoryDetail(null)}
+                  style={{ width: 32, height: 32, background: "#f5f5f4", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#78716c" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
             </div>
-
-            {/* Summary cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 16 }}>
+            {/* Summary */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "#f0eeed", borderBottom: "1px solid #f0eeed" }}>
               {[
-                { label: "Toplam Ürün", value: historyDetail.total_products, color: "#18181b" },
-                { label: "Sayılan", value: historyDetail.counted_products, color: "#3b82f6" },
-                { label: "Fark Var", value: historyDetail.diff_count, color: historyDetail.diff_count > 0 ? "#ef4444" : "#22c55e" },
+                { label: "Toplam Ürün", value: historyDetail.total_products },
+                { label: "Sayılan Ürün", value: historyDetail.counted_products },
+                { label: "Fark Tespit Edilen", value: historyDetail.diff_count, color: historyDetail.diff_count > 0 ? "#ef4444" : "#22c55e" },
               ].map(s => (
-                <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 10, padding: "12px 16px", textAlign: "center" }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 3 }}>{s.label}</div>
+                <div key={s.label} style={{ background: "#fff", padding: "14px 20px", textAlign: "center" }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color || "#18181b" }}>{s.value}</div>
+                  <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 2 }}>{s.label}</div>
                 </div>
               ))}
             </div>
-
-            {/* Detail table */}
-            <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, overflow: "hidden" }}>
+            {/* Items table */}
+            <div style={{ maxHeight: 400, overflowY: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+                <thead style={{ position: "sticky", top: 0, background: "#fafaf9", zIndex: 1 }}>
+                  <tr style={{ borderBottom: "1px solid #f0eeed" }}>
                     {["Ürün", "Sistem Stoğu", "Sayılan", "Fark", "Durum"].map(h => (
-                      <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
+                      <th key={h} style={{ padding: "9px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {historyDetail.items.map((item, idx) => (
                     <tr key={idx} style={{ borderBottom: "1px solid #f5f5f4", background: item.diff !== 0 ? (item.diff > 0 ? "#eff6ff" : "#fef2f2") : "#fff" }}>
-                      <td style={{ padding: "10px 14px" }}>
+                      <td style={{ padding: "10px 16px" }}>
                         <div style={{ fontSize: 13, fontWeight: 500, color: "#1c1917" }}>{item.name}</div>
                         <div style={{ fontSize: 11, color: "#a8a29e", fontFamily: "monospace" }}>{item.sku}</div>
                       </td>
-                      <td style={{ padding: "10px 14px", color: "#78716c", fontWeight: 600, fontSize: 14 }}>{item.system_stock}</td>
-                      <td style={{ padding: "10px 14px", color: "#1c1917", fontWeight: 600, fontSize: 14 }}>{item.counted}</td>
-                      <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 15, color: item.diff > 0 ? "#3b82f6" : item.diff < 0 ? "#ef4444" : "#22c55e" }}>
+                      <td style={{ padding: "10px 16px", color: "#78716c", fontWeight: 600, fontSize: 14 }}>{item.system_stock}</td>
+                      <td style={{ padding: "10px 16px", color: "#1c1917", fontWeight: 600, fontSize: 14 }}>{item.counted}</td>
+                      <td style={{ padding: "10px 16px", fontWeight: 700, fontSize: 15, color: item.diff > 0 ? "#3b82f6" : item.diff < 0 ? "#ef4444" : "#22c55e" }}>
                         {item.diff > 0 ? `+${item.diff}` : item.diff}
                       </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <span style={{ background: item.diff === 0 ? "#f0fdf4" : item.diff > 0 ? "#eff6ff" : "#fef2f2", color: item.diff === 0 ? "#16a34a" : item.diff > 0 ? "#3b82f6" : "#ef4444", border: `1px solid ${item.diff === 0 ? "#bbf7d0" : item.diff > 0 ? "#bfdbfe" : "#fecaca"}`, borderRadius: 99, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ background: item.diff === 0 ? "#f0fdf4" : item.diff > 0 ? "#eff6ff" : "#fef2f2", color: item.diff === 0 ? "#16a34a" : item.diff > 0 ? "#3b82f6" : "#ef4444", borderRadius: 99, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>
                           {item.diff === 0 ? "Eşleşti" : item.diff > 0 ? "Fazla" : "Eksik"}
                         </span>
                       </td>
@@ -1991,100 +2059,127 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
               </table>
             </div>
           </div>
-        ) : (
-          <div>
-            {historyLoading ? (
-              <div style={{ textAlign: "center", padding: 40, color: "#a8a29e" }}>Yükleniyor...</div>
-            ) : countHistory.length === 0 ? (
-              <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 48, textAlign: "center" }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: "#18181b", marginBottom: 6 }}>Henüz sayım yapılmamış</div>
-                <div style={{ fontSize: 13, color: "#a8a29e" }}>İlk sayımınızı tamamladıktan sonra burada görünecek</div>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {countHistory.map(s => (
-                  <div key={s.id} onClick={() => setHistoryDetail(s)}
-                    style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = "#d6d3d1"}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "#e7e5e4"}>
-                    <div style={{ width: 42, height: 42, borderRadius: 10, background: s.applied ? "#f0fdf4" : "#fef9c3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>
-                      {s.applied ? "✅" : "📝"}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b" }}>{s.name}</div>
-                      <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>
-                        {fmt(s.created_at)} · {s.username} · {s.filter_category !== "Tümü" ? s.filter_category : "Tüm kategoriler"}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#18181b" }}>{s.counted_products} / {s.total_products} ürün</div>
-                      <div style={{ fontSize: 12, color: s.diff_count > 0 ? "#ef4444" : "#22c55e", marginTop: 2 }}>
-                        {s.diff_count > 0 ? `${s.diff_count} fark` : "Fark yok"}
-                      </div>
-                    </div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if (phase === "setup") return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Sayım Modülü</h1>
-          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>Barkod okuyucu veya manuel giriş ile fiziksel sayım yapın</p>
         </div>
-        <button onClick={() => { setPhase("history"); loadHistory(); }}
-          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500, flexShrink: 0 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Geçmiş Sayımlar
-        </button>
+      )}
+    </div>
+  );}
+
+  if (phase === "new") return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, fontSize: 13, color: "#a8a29e" }}>
+        <button onClick={() => setPhase("setup")} style={{ background: "none", border: "none", cursor: "pointer", color: "#a8a29e", fontSize: 13, padding: 0 }}>Stok Sayımları</button>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span style={{ color: "#18181b", fontWeight: 500 }}>Stok Sayımı Ekle</span>
       </div>
 
-      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28, maxWidth: 600 }}>
-        <h3 style={{ margin: "0 0 20px", fontSize: 16 }}>Sayım Ayarları</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Stok Sayımı Detay */}
+      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28, marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "#18181b", margin: "0 0 20px" }}>Stok Sayımı Detay</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
-            <label style={{ color: "#78716c", fontSize: 12, display: "block", marginBottom: 5 }}>Sayım Adı</label>
-            <input value={countName} onChange={e => setCountName(e.target.value)} style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 14, outline: "none" }} />
+            <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>
+              Kategori Filtresi
+            </label>
+            <select value={filter.category} onChange={e => setFilter(f => ({ ...f, category: e.target.value }))}
+              style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+              <option value="">Tümü</option>
+              {categories.map(c => <option key={c}>{c}</option>)}
+            </select>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={{ color: "#78716c", fontSize: 12, display: "block", marginBottom: 5 }}>Kategori Filtresi</label>
-              <select value={filter.category} onChange={e => setFilter(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 14, outline: "none" }}>
-                <option value="">Tümü</option>
-                {categories.map(c => <option key={c}>{c}</option>)}
-              </select>
+          <div>
+            <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>
+              Ad <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <input value={countName} onChange={e => setCountName(e.target.value)}
+              style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+          </div>
+          <div>
+            <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>
+              Marka Filtresi
+            </label>
+            <select value={filter.brand} onChange={e => setFilter(f => ({ ...f, brand: e.target.value }))}
+              style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+              <option value="">Tümü</option>
+              {brands.map(b => <option key={b}>{b}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 9, padding: "10px 14px", color: "#16a34a", fontSize: 13, fontWeight: 500, width: "100%" }}>
+              <span style={{ color: "#78716c" }}>Seçilen kriterlerde </span>
+              <strong style={{ color: "#18181b" }}>{filteredProducts.length}</strong>
+              <span style={{ color: "#78716c" }}> ürün sayılacak</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stok Sayım Yöntemi */}
+      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "#18181b", margin: "0 0 20px" }}>Stok Sayım Yöntemi</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
+          {/* Sayarak Ekle */}
+          <div style={{ border: "2px solid #e7e5e4", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 16, transition: "border-color 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#18181b"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e7e5e4"}>
             <div>
-              <label style={{ color: "#78716c", fontSize: 12, display: "block", marginBottom: 5 }}>Marka Filtresi</label>
-              <select value={filter.brand} onChange={e => setFilter(f => ({ ...f, brand: e.target.value }))} style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 14, outline: "none" }}>
-                <option value="">Tümü</option>
-                {brands.map(b => <option key={b}>{b}</option>)}
-              </select>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 8px" }}>Sayarak Ekle</h3>
+              <p style={{ fontSize: 13, color: "#78716c", margin: 0, lineHeight: 1.5 }}>Depoda ürünleri tek tek sayarak veya barkod okuyarak stokları güncelleyin.</p>
             </div>
-          </div>
-          <div style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 10, padding: "12px 16px" }}>
-            <span style={{ color: "#60a5fa", fontSize: 13 }}>Seçilen kriterlerde <strong>{filteredProducts.length}</strong> ürün sayılacak</span>
-          </div>
-          {canEdit && (
-            <button onClick={startCounting} className="btn-hover" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px", background: "#18181b", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: 15, fontWeight: 600, transition: "all 0.15s" }}>
-              <Icon name="scan" size={18} /> Sayımı Başlat
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {[
+                "Hızlı ve yerinde sayım yapan ekipler için idealdir.",
+                "Sayım sırasında yalnızca okuttuğunuz veya manuel olarak saydığınız ürünlerin stokları güncellenir.",
+                "Barkod okuyucuyla hızlıca ilerleyerek hataları en aza indirebilirsiniz.",
+              ].map((text, i) => (
+                <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: "#f0f9ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <span style={{ fontSize: 12.5, color: "#78716c", lineHeight: 1.5 }}>{text}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={startCounting} disabled={!canEdit}
+              style={{ marginTop: "auto", padding: "12px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: canEdit ? "pointer" : "not-allowed", fontSize: 14, fontWeight: 600, opacity: canEdit ? 1 : 0.5 }}>
+              Sayarak Sayım Başlat
             </button>
-          )}
+          </div>
+
+          {/* Filtreye Göre Ekle */}
+          <div style={{ border: "2px solid #e7e5e4", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 16, transition: "border-color 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#18181b"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e7e5e4"}>
+            <div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 8px" }}>Filtreye Göre Ekle</h3>
+              <p style={{ fontSize: 13, color: "#78716c", margin: 0, lineHeight: 1.5 }}>Belirli kriterlere göre tüm ürün listesini sayım için hazırlayın.</p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {[
+                "Sayım sonrası yalnızca saydığınız ürünlerin stokları güncellenir.",
+                "Geniş ürün portföyüne sahip işletmeler için önerilir.",
+                "Sistem, seçtiğiniz filtreye göre ürünleri listeler.",
+              ].map((text, i) => (
+                <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <span style={{ fontSize: 12.5, color: "#78716c", lineHeight: 1.5 }}>{text}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={startCounting} disabled={!canEdit}
+              style={{ marginTop: "auto", padding: "12px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: canEdit ? "pointer" : "not-allowed", fontSize: 14, fontWeight: 600, opacity: canEdit ? 1 : 0.5 }}>
+              Filtreye Göre Sayım Ekle
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 
-  if (phase === "counting") {
+    if (phase === "counting") {
     const visibleProducts = filteredProducts.filter(p =>
       !countSearch || p.name.toLowerCase().includes(countSearch.toLowerCase()) ||
       p.barcode?.includes(countSearch) || p.sku?.toLowerCase().includes(countSearch.toLowerCase())
