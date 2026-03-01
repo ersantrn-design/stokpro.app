@@ -416,6 +416,8 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
   const [comments, setComments] = useState([]);
   const [comment, setComment] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
+  const [barcodeActive, setBarcodeActive] = useState(false);
+  const [showBarcodeCamera, setShowBarcodeCamera] = useState(false);
   const barcodeRef = useRef(null);
   const itemSearchRef = useRef(null);
 
@@ -455,8 +457,30 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
     const code = barcodeInput.trim();
     if (!code) return;
     const product = products.find(p => p.barcode === code || p.sku === code);
-    if (product) { addItem(product); setBarcodeInput(""); }
+    if (product) { addItem(product); setBarcodeInput(""); notify(`✓ ${product.name} eklendi`); }
     else { notify("Barkod bulunamadı: " + code, "error"); setBarcodeInput(""); }
+  };
+
+  const handleBarcodeCameraDetect = (code) => {
+    const product = products.find(p => p.barcode === code || p.sku === code);
+    if (product) {
+      addItem(product);
+      notify(`✓ ${product.name} eklendi`);
+      setShowBarcodeCamera(false);
+      setBarcodeActive(false);
+      return true;
+    }
+    return false;
+  };
+
+  const activateBarcode = () => {
+    setBarcodeActive(true);
+    setTimeout(() => barcodeRef.current?.focus(), 100);
+  };
+
+  const deactivateBarcode = () => {
+    setBarcodeActive(false);
+    setBarcodeInput("");
   };
 
   const updateQty = (productId, qty) => {
@@ -763,12 +787,19 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
             <div>
               <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Giriş Şubesi <span style={{ color: "#ef4444" }}>*</span></label>
               {locOptions.length > 0 ? (
-                <select value={toLoc} onChange={e => setToLoc(e.target.value)} style={selectStyle}>
+                <select value={toLoc} onChange={e => setToLoc(e.target.value)}
+                  style={{ ...selectStyle, borderColor: toLoc && toLoc === fromLoc ? "#fca5a5" : "#e7e5e4", background: toLoc && toLoc === fromLoc ? "#fef2f2" : "#fafaf9" }}>
                   <option value="">Seçin...</option>
-                  {locOptions.map(l => <option key={l}>{l}</option>)}
+                  {locOptions.filter(l => l !== fromLoc).map(l => <option key={l}>{l}</option>)}
                 </select>
               ) : (
                 <input value={toLoc} onChange={e => setToLoc(e.target.value)} placeholder="Giriş lokasyonu..." style={inputStyle} />
+              )}
+              {toLoc && toLoc === fromLoc && (
+                <div style={{ marginTop: 6, fontSize: 12, color: "#dc2626", display: "flex", alignItems: "center", gap: 5 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Çıkış ve giriş şubesi aynı olamaz
+                </div>
               )}
             </div>
           </div>
@@ -781,12 +812,13 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
               Ürünler
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8c4be" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             </h3>
-            {/* Barkod input */}
+            {/* Barkod Button */}
             <div style={{ position: "relative" }}>
-              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="21" y2="14"/><line x1="14" y1="18" x2="21" y2="18"/><line x1="14" y1="21" x2="17" y2="21"/></svg>
-              <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={addByBarcode}
-                placeholder="Barkod ile Okut"
-                style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "7px 12px 7px 32px", color: "#1c1917", fontSize: 13, outline: "none", fontFamily: "inherit", width: 170 }} />
+              <button onClick={barcodeActive ? deactivateBarcode : activateBarcode}
+                style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", background: barcodeActive ? "#18181b" : "#fafaf9", border: `1px solid ${barcodeActive ? "#18181b" : "#e7e5e4"}`, borderRadius: 8, color: barcodeActive ? "#fff" : "#44403c", cursor: "pointer", fontSize: 13, fontWeight: 500, transition: "all 0.15s" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="21" y2="14"/><line x1="14" y1="18" x2="21" y2="18"/><line x1="14" y1="21" x2="17" y2="21"/></svg>
+                {barcodeActive ? "● Aktif" : "Barkod ile Okut"}
+              </button>
             </div>
           </div>
 
@@ -812,6 +844,47 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
               </div>
             )}
           </div>
+
+          {/* Barcode active overlay */}
+          {barcodeActive && (
+            <div style={{ background: "#f0fdf4", border: "2px solid #86efac", borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 99, background: "#22c55e", animation: "pulse 1.5s infinite", flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>Barkod Okuyucu Aktif</div>
+                <div style={{ fontSize: 12, color: "#16a34a", marginTop: 2 }}>Barkod tabancasıyla okutun (Enter ile onaylayın) veya kamera kullanın</div>
+              </div>
+              <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={addByBarcode}
+                placeholder="Barkodu okutun..."
+                autoFocus
+                style={{ background: "#fff", border: "1px solid #86efac", borderRadius: 8, padding: "7px 12px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit", width: 200, fontWeight: 500 }} />
+              <button onClick={() => setShowBarcodeCamera(true)}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 500, flexShrink: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Kamera
+              </button>
+              <button onClick={deactivateBarcode}
+                style={{ width: 28, height: 28, background: "#dcfce7", border: "none", borderRadius: 7, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a", flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          )}
+
+          {/* Camera scanner modal */}
+          {showBarcodeCamera && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", width: "min(480px, 95vw)", boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}>
+                <div style={{ background: "#18181b", padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>📷 Barkod Tara</span>
+                  <button onClick={() => setShowBarcodeCamera(false)} style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>×</button>
+                </div>
+                <CameraScanner
+                  onDetected={handleBarcodeCameraDetect}
+                  onClose={() => setShowBarcodeCamera(false)}
+                  recentScans={[]}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Items table */}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -958,7 +1031,7 @@ function LoginScreen({ onLogin }) {
         .nav-item:hover { background: #f5f5f4 !important; color: #1c1917 !important; }
         .nav-item.active { background: #f5f5f4 !important; color: #1c1917 !important; }
 
-        .table-row:hover td, .table-row:hover { background: #fafaf9 !important; }
+        .table-row:hover td, .table-row:hover { background: #fafaf9 !important; } @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .table-row:nth-child(even) { background: transparent !important; }
 
         .btn-hover { transition: all 0.12s ease !important; }
