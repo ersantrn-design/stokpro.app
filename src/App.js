@@ -16,7 +16,7 @@ const now = () => new Date().toISOString();
 // DB row -> app object mappers
 const mapProduct = (r) => ({
   id: r.id, name: r.name, sku: r.sku, barcode: r.barcode || "",
-  category: r.category || "", brand: r.brand || "", variant: r.variant || "",
+  category: r.category || "", brand: r.brand || "", location: r.location || "", variant: r.variant || "",
   minStock: r.min_stock, stock: r.stock, description: r.description || "",
   costPrice: r.cost_price || 0, salePrice: r.sale_price || 0, vatRate: r.vat_rate || 20,
   createdAt: r.created_at,
@@ -371,6 +371,7 @@ const Icon = ({ name, size = 18, color }) => {
     eye: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
     inventory: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8h14M5 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>,
     scan: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>,
+    transfer: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>,
     purchasing: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
     supplier: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
     truck: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
@@ -396,6 +397,301 @@ const downloadCSV = (data, filename) => {
   const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 };
+
+// ─── TRANSFERS PAGE ───────────────────────────────────────────────────────────
+function TransfersPage({ products, setProducts, setMovements, user, notify, locations }) {
+  const [transfers, setTransfers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(false);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({ productId: "", fromLocation: "", toLocation: "", quantity: "", note: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const canEdit = user.role !== "viewer";
+
+  useEffect(() => { loadTransfers(); }, []);
+
+  const loadTransfers = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("transfers").select("*").order("created_at", { ascending: false }).limit(100);
+    if (data) setTransfers(data);
+    setLoading(false);
+  };
+
+  const openModal = () => {
+    setForm({ productId: "", fromLocation: "", toLocation: "", quantity: "", note: "" });
+    setModal(true);
+  };
+
+  const doTransfer = async () => {
+    if (!form.productId || !form.fromLocation || !form.toLocation || !form.quantity) {
+      notify("Tüm zorunlu alanları doldurun", "error"); return;
+    }
+    if (form.fromLocation === form.toLocation) {
+      notify("Kaynak ve hedef lokasyon aynı olamaz", "error"); return;
+    }
+    const qty = parseInt(form.quantity);
+    if (!qty || qty <= 0) { notify("Geçerli bir miktar girin", "error"); return; }
+
+    const product = products.find(p => p.id === form.productId);
+    if (!product) { notify("Ürün bulunamadı", "error"); return; }
+    if (product.stock < qty) { notify(`Yetersiz stok! Mevcut: ${product.stock}`, "error"); return; }
+
+    setSubmitting(true);
+    try {
+      // Insert transfer record
+      const transferRow = {
+        product_id: product.id,
+        product_name: product.name,
+        product_sku: product.sku,
+        from_location: form.fromLocation,
+        to_location: form.toLocation,
+        quantity: qty,
+        note: form.note || "",
+        username: user.username,
+        status: "tamamlandı",
+      };
+      const { data: tData, error: tErr } = await supabase.from("transfers").insert([transferRow]).select().single();
+      if (tErr) throw tErr;
+
+      // Update product location to toLocation
+      await supabase.from("products").update({ location: form.toLocation }).eq("id", product.id);
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, location: form.toLocation } : p));
+
+      // Add movement records (çıkış from, giriş to)
+      const mvBase = { product_id: product.id, product_name: product.name, quantity: qty, prev_stock: product.stock, next_stock: product.stock, username: user.username, note: `Transfer: ${form.fromLocation} → ${form.toLocation}${form.note ? " | " + form.note : ""}` };
+      await supabase.from("movements").insert([
+        { ...mvBase, type: "Transfer Çıkış" },
+        { ...mvBase, type: "Transfer Giriş" },
+      ]);
+      const { data: moves } = await supabase.from("movements").select("*").order("created_at", { ascending: false }).limit(200);
+      if (moves) setMovements(moves.map(m => ({ id: m.id, productId: m.product_id, productName: m.product_name, type: m.type, quantity: m.quantity, prevStock: m.prev_stock, nextStock: m.next_stock, username: m.username, note: m.note || "", date: m.created_at })));
+
+      setTransfers(prev => [tData, ...prev]);
+      notify(`✓ ${qty} adet ${product.name} transferi tamamlandı`);
+      setModal(false);
+    } catch(e) {
+      notify("Transfer başarısız: " + e.message, "error");
+    }
+    setSubmitting(false);
+  };
+
+  const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+
+  const filtered = transfers.filter(t =>
+    !search || t.product_name?.toLowerCase().includes(search.toLowerCase()) ||
+    t.from_location?.toLowerCase().includes(search.toLowerCase()) ||
+    t.to_location?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const locOptions = locations.length > 0 ? locations.map(l => l.name || l) : [];
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em", color: "#18181b" }}>Transferler</h1>
+          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>Depolar arası ürün transferlerini yönetin</p>
+        </div>
+        {canEdit && (
+          <button onClick={openModal}
+            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Yeni Transfer
+          </button>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "Toplam Transfer", value: transfers.length, icon: "🔄" },
+          { label: "Bu Ay", value: transfers.filter(t => new Date(t.created_at).getMonth() === new Date().getMonth()).length, icon: "📅" },
+          { label: "Aktif Lokasyon", value: locOptions.length, icon: "📍" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ fontSize: 22 }}>{s.icon}</div>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b" }}>{s.value}</div>
+              <div style={{ fontSize: 12, color: "#a8a29e" }}>{s.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#a8a29e" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı veya lokasyon ile ara..."
+          style={{ width: "100%", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 12px 9px 36px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+      </div>
+
+      {/* Table */}
+      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+              {["Ürün", "Kaynak", "", "Hedef", "Miktar", "Yapan", "Tarih", "Durum"].map(h => (
+                <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Yükleniyor...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={8} style={{ padding: 48, textAlign: "center" }}>
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>🔄</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", marginBottom: 4 }}>Henüz transfer yapılmamış</div>
+                  <div style={{ fontSize: 13, color: "#a8a29e" }}>Sağ üstten yeni transfer oluşturabilirsiniz</div>
+                </td>
+              </tr>
+            ) : filtered.map(t => (
+              <tr key={t.id} style={{ borderBottom: "1px solid #f5f5f4" }} className="table-row">
+                <td style={{ padding: "12px 16px" }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{t.product_name}</div>
+                  <div style={{ fontSize: 11.5, color: "#a8a29e", fontFamily: "monospace" }}>{t.product_sku}</div>
+                </td>
+                <td style={{ padding: "12px 16px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f5f5f4", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#44403c" }}>
+                    📍 {t.from_location}
+                  </span>
+                </td>
+                <td style={{ padding: "0 4px", textAlign: "center" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </td>
+                <td style={{ padding: "12px 16px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#16a34a" }}>
+                    📍 {t.to_location}
+                  </span>
+                </td>
+                <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 15, color: "#18181b" }}>{t.quantity}</td>
+                <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c" }}>{t.username}</td>
+                <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c", whiteSpace: "nowrap" }}>{fmt(t.created_at)}</td>
+                <td style={{ padding: "12px 16px" }}>
+                  <span style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 500 }}>
+                    ✓ {t.status || "tamamlandı"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Transfer Modal */}
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 520, boxShadow: "0 24px 64px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: "1px solid #f0eeed" }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#18181b" }}>Yeni Transfer</div>
+                <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>Depolar arası ürün transferi oluştur</div>
+              </div>
+              <button onClick={() => setModal(false)} style={{ width: 32, height: 32, background: "#f5f5f4", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#78716c" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+
+              {/* Product select */}
+              <div>
+                <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Ürün <span style={{ color: "#ef4444" }}>*</span></label>
+                <select value={form.productId} onChange={e => {
+                  const p = products.find(pr => pr.id === e.target.value);
+                  setForm(f => ({ ...f, productId: e.target.value, fromLocation: p?.location || "" }));
+                }} style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.productId ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                  <option value="">Ürün seçin...</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {p.sku} (Stok: {p.stock})</option>)}
+                </select>
+                {form.productId && (() => {
+                  const p = products.find(pr => pr.id === form.productId);
+                  return p ? (
+                    <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: "#a8a29e" }}>Mevcut Stok:</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: p.stock > 0 ? "#18181b" : "#ef4444" }}>{p.stock} adet</span>
+                      {p.location && <><span style={{ fontSize: 12, color: "#a8a29e" }}>· Lokasyon:</span><span style={{ fontSize: 12, fontWeight: 600, color: "#3b82f6" }}>{p.location}</span></>}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* From / To locations */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 1fr", gap: 8, alignItems: "end" }}>
+                <div>
+                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Kaynak Lokasyon <span style={{ color: "#ef4444" }}>*</span></label>
+                  {locOptions.length > 0 ? (
+                    <select value={form.fromLocation} onChange={e => setForm(f => ({ ...f, fromLocation: e.target.value }))}
+                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.fromLocation ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", fontFamily: "inherit" }}>
+                      <option value="">Seçin...</option>
+                      {locOptions.map(l => <option key={l}>{l}</option>)}
+                    </select>
+                  ) : (
+                    <input value={form.fromLocation} onChange={e => setForm(f => ({ ...f, fromLocation: e.target.value }))} placeholder="Kaynak depo..."
+                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "center", paddingBottom: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </div>
+                <div>
+                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Hedef Lokasyon <span style={{ color: "#ef4444" }}>*</span></label>
+                  {locOptions.length > 0 ? (
+                    <select value={form.toLocation} onChange={e => setForm(f => ({ ...f, toLocation: e.target.value }))}
+                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.toLocation ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", fontFamily: "inherit" }}>
+                      <option value="">Seçin...</option>
+                      {locOptions.map(l => <option key={l}>{l}</option>)}
+                    </select>
+                  ) : (
+                    <input value={form.toLocation} onChange={e => setForm(f => ({ ...f, toLocation: e.target.value }))} placeholder="Hedef depo..."
+                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                  )}
+                </div>
+              </div>
+
+              {/* Quantity + Note */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Miktar <span style={{ color: "#ef4444" }}>*</span></label>
+                  <input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0"
+                    style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                </div>
+                <div>
+                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Not (opsiyonel)</label>
+                  <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Transfer notu..."
+                    style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
+                </div>
+              </div>
+
+              {/* Warning if insufficient stock */}
+              {form.productId && form.quantity && (() => {
+                const p = products.find(pr => pr.id === form.productId);
+                const qty = parseInt(form.quantity);
+                if (p && qty > p.stock) return (
+                  <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "10px 14px", fontSize: 13, color: "#dc2626", display: "flex", gap: 8 }}>
+                    <span>⚠️</span> Yetersiz stok! Mevcut stok: <strong>{p.stock}</strong>
+                  </div>
+                );
+                return null;
+              })()}
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "16px 24px", borderTop: "1px solid #f0eeed", background: "#fafaf9" }}>
+              <button onClick={() => setModal(false)} style={{ flex: 1, padding: "10px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+                İptal
+              </button>
+              <button onClick={doTransfer} disabled={submitting}
+                style={{ flex: 2, padding: "10px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: submitting ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 600, opacity: submitting ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {submitting ? "İşleniyor..." : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg> Transferi Onayla</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
@@ -579,8 +875,9 @@ export default function App() {
   const renderPage = () => {
     switch(page) {
       case "dashboard": return <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />;
-      case "products": return <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
+      case "products": return <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} locations={locations} />;
       case "movements": return <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />;
+      case "transfers": return <TransfersPage products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} locations={locations} />;
       case "counting": return <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
       case "reports": return <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />;
       case "settings": return <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} locations={locations} setLocations={setLocations} />;
@@ -593,6 +890,7 @@ export default function App() {
     { id: "dashboard", label: "Özet", icon: "dashboard" },
     { id: "products", label: "Ürünler", icon: "products" },
     { id: "movements", label: "Hareketler", icon: "movements" },
+    { id: "transfers", label: "Transferler", icon: "transfer" },
     { id: "counting", label: "Sayım", icon: "scan" },
     { id: "purchasing", label: "Satın Alma", icon: "purchasing" },
     { id: "reports", label: "Raporlar", icon: "reports" },
@@ -1049,7 +1347,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
 }
 
 // ─── PRODUCTS PAGE ────────────────────────────────────────────────────────────
-function ProductsPage({ products, setProducts, movements, setMovements, user, notify, categories, brands }) {
+function ProductsPage({ products, setProducts, movements, setMovements, user, notify, categories, brands, locations }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("");
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "view" | "move" | "bulkMove"
@@ -1077,7 +1375,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     if (!form.name || !form.sku) { notify("Ürün adı ve SKU zorunludur", "error"); return; }
     const dbObj = {
       name: form.name, sku: form.sku, barcode: form.barcode || "",
-      category: form.category || "", brand: form.brand || "", variant: form.variant || "",
+      category: form.category || "", brand: form.brand || "", location: form.location || "", variant: form.variant || "",
       min_stock: Number(form.minStock) || 0, stock: Number(form.stock) || 0,
       description: form.description || "",
       cost_price: Number(form.costPrice) || 0,
@@ -1525,6 +1823,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
             <Field label="Barkod (EAN)" field="barcode" />
             <Field label="Kategori" field="category" options={categories} />
             <Field label="Marka" field="brand" options={brands} />
+            <Field label="Stok Lokasyonu" field="location" options={locations.map(l => l.name || l)} />
             <Field label="Varyant (renk, ölçü vb.)" field="variant" />
             <Field label="Başlangıç Stoku" field="stock" type="number" />
             <Field label="Minimum Stok Seviyesi" field="minStock" type="number" />
