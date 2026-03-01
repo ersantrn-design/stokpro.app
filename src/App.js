@@ -416,8 +416,8 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
   const [comments, setComments] = useState([]);
   const [comment, setComment] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
-  const barcodeRef = React.useRef(null);
-  const itemSearchRef = React.useRef(null);
+  const barcodeRef = useRef(null);
+  const itemSearchRef = useRef(null);
 
   const canEdit = user.role !== "viewer";
   const locOptions = locations.length > 0 ? locations.map(l => l.name || l) : [];
