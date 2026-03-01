@@ -402,12 +402,26 @@ const downloadCSV = (data, filename) => {
 function TransfersPage({ products, setProducts, setMovements, user, notify, locations }) {
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(false);
+  const [view, setView] = useState("list"); // "list" | "new" | "detail"
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ productId: "", fromLocation: "", toLocation: "", quantity: "", note: "" });
   const [submitting, setSubmitting] = useState(false);
+  const [selectedTransfer, setSelectedTransfer] = useState(null);
+
+  // New transfer form
+  const [irsaliyeNo, setIrsaliyeNo] = useState("");
+  const [fromLoc, setFromLoc] = useState("");
+  const [toLoc, setToLoc] = useState("");
+  const [transferItems, setTransferItems] = useState([]);
+  const [itemSearch, setItemSearch] = useState("");
+  const [comments, setComments] = useState([]);
+  const [comment, setComment] = useState("");
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const barcodeRef = React.useRef(null);
+  const itemSearchRef = React.useRef(null);
 
   const canEdit = user.role !== "viewer";
+  const locOptions = locations.length > 0 ? locations.map(l => l.name || l) : [];
+  const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
 
   useEffect(() => { loadTransfers(); }, []);
 
@@ -418,280 +432,491 @@ function TransfersPage({ products, setProducts, setMovements, user, notify, loca
     setLoading(false);
   };
 
-  const openModal = () => {
-    setForm({ productId: "", fromLocation: "", toLocation: "", quantity: "", note: "" });
-    setModal(true);
+  const openNew = () => {
+    setIrsaliyeNo(`IRS-${Date.now().toString().slice(-6)}`);
+    setFromLoc(locOptions[0] || "");
+    setToLoc("");
+    setTransferItems([]);
+    setComments([]);
+    setComment("");
+    setItemSearch("");
+    setView("new");
   };
 
-  const doTransfer = async () => {
-    if (!form.productId || !form.fromLocation || !form.toLocation || !form.quantity) {
-      notify("Tüm zorunlu alanları doldurun", "error"); return;
-    }
-    if (form.fromLocation === form.toLocation) {
-      notify("Kaynak ve hedef lokasyon aynı olamaz", "error"); return;
-    }
-    const qty = parseInt(form.quantity);
-    if (!qty || qty <= 0) { notify("Geçerli bir miktar girin", "error"); return; }
+  const addItem = (product) => {
+    if (transferItems.find(i => i.productId === product.id)) return;
+    setTransferItems(prev => [...prev, { productId: product.id, quantity: 1 }]);
+    setItemSearch("");
+    itemSearchRef.current?.focus();
+  };
 
-    const product = products.find(p => p.id === form.productId);
-    if (!product) { notify("Ürün bulunamadı", "error"); return; }
-    if (product.stock < qty) { notify(`Yetersiz stok! Mevcut: ${product.stock}`, "error"); return; }
+  const addByBarcode = (e) => {
+    if (e.key !== "Enter") return;
+    const code = barcodeInput.trim();
+    if (!code) return;
+    const product = products.find(p => p.barcode === code || p.sku === code);
+    if (product) { addItem(product); setBarcodeInput(""); }
+    else { notify("Barkod bulunamadı: " + code, "error"); setBarcodeInput(""); }
+  };
 
+  const updateQty = (productId, qty) => {
+    setTransferItems(prev => prev.map(i => i.productId === productId ? { ...i, quantity: Math.max(0, qty) } : i));
+  };
+
+  const removeItem = (productId) => setTransferItems(prev => prev.filter(i => i.productId !== productId));
+
+  const sendComment = () => {
+    if (!comment.trim()) return;
+    setComments(prev => [...prev, { text: comment.trim(), user: user.name || user.username, time: new Date() }]);
+    setComment("");
+  };
+
+  const doTransfer = async (asDraft = false) => {
+    if (!fromLoc || !toLoc) { notify("Çıkış ve giriş şubesi zorunludur", "error"); return; }
+    if (fromLoc === toLoc) { notify("Çıkış ve giriş şubesi aynı olamaz", "error"); return; }
+    if (transferItems.length === 0) { notify("En az bir ürün ekleyin", "error"); return; }
+    if (!asDraft) {
+      const bad = transferItems.find(i => { const p = products.find(pr => pr.id === i.productId); return !p || i.quantity <= 0 || p.stock < i.quantity; });
+      if (bad) { notify("Bazı ürünlerde yetersiz stok veya geçersiz miktar", "error"); return; }
+    }
     setSubmitting(true);
     try {
-      // Insert transfer record
+      const itemsData = transferItems.map(i => {
+        const p = products.find(pr => pr.id === i.productId);
+        return { productId: i.productId, productName: p?.name, productSku: p?.sku, quantity: i.quantity };
+      });
       const transferRow = {
-        product_id: product.id,
-        product_name: product.name,
-        product_sku: product.sku,
-        from_location: form.fromLocation,
-        to_location: form.toLocation,
-        quantity: qty,
-        note: form.note || "",
+        irsaliye_no: irsaliyeNo,
+        from_location: fromLoc,
+        to_location: toLoc,
+        items: itemsData,
+        comments,
         username: user.username,
-        status: "tamamlandı",
+        status: asDraft ? "taslak" : "tamamlandı",
+        product_id: transferItems[0]?.productId,
+        product_name: itemsData.map(i => i.productName).filter(Boolean).join(", "),
+        product_sku: "",
+        quantity: transferItems.reduce((s, i) => s + i.quantity, 0),
+        note: `İrsaliye: ${irsaliyeNo}`,
       };
       const { data: tData, error: tErr } = await supabase.from("transfers").insert([transferRow]).select().single();
       if (tErr) throw tErr;
-
-      // Update product location to toLocation
-      await supabase.from("products").update({ location: form.toLocation }).eq("id", product.id);
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, location: form.toLocation } : p));
-
-      // Add movement records (çıkış from, giriş to)
-      const mvBase = { product_id: product.id, product_name: product.name, quantity: qty, prev_stock: product.stock, next_stock: product.stock, username: user.username, note: `Transfer: ${form.fromLocation} → ${form.toLocation}${form.note ? " | " + form.note : ""}` };
-      await supabase.from("movements").insert([
-        { ...mvBase, type: "Transfer Çıkış" },
-        { ...mvBase, type: "Transfer Giriş" },
-      ]);
-      const { data: moves } = await supabase.from("movements").select("*").order("created_at", { ascending: false }).limit(200);
-      if (moves) setMovements(moves.map(m => ({ id: m.id, productId: m.product_id, productName: m.product_name, type: m.type, quantity: m.quantity, prevStock: m.prev_stock, nextStock: m.next_stock, username: m.username, note: m.note || "", date: m.created_at })));
-
+      if (!asDraft) {
+        for (const item of transferItems) {
+          const p = products.find(pr => pr.id === item.productId);
+          if (!p) continue;
+          await supabase.from("products").update({ location: toLoc }).eq("id", p.id);
+          setProducts(prev => prev.map(pr => pr.id === p.id ? { ...pr, location: toLoc } : pr));
+          await supabase.from("movements").insert([
+            { product_id: p.id, product_name: p.name, type: "Transfer Çıkış", quantity: item.quantity, prev_stock: p.stock, next_stock: p.stock, username: user.username, note: `${fromLoc} → ${toLoc} | İrs: ${irsaliyeNo}` },
+            { product_id: p.id, product_name: p.name, type: "Transfer Giriş", quantity: item.quantity, prev_stock: p.stock, next_stock: p.stock, username: user.username, note: `${fromLoc} → ${toLoc} | İrs: ${irsaliyeNo}` },
+          ]);
+        }
+        const { data: moves } = await supabase.from("movements").select("*").order("created_at", { ascending: false }).limit(200);
+        if (moves) setMovements(moves.map(m => ({ id: m.id, productId: m.product_id, productName: m.product_name, type: m.type, quantity: m.quantity, prevStock: m.prev_stock, nextStock: m.next_stock, username: m.username, note: m.note || "", date: m.created_at })));
+      }
       setTransfers(prev => [tData, ...prev]);
-      notify(`✓ ${qty} adet ${product.name} transferi tamamlandı`);
-      setModal(false);
-    } catch(e) {
-      notify("Transfer başarısız: " + e.message, "error");
-    }
+      notify(asDraft ? "Taslak kaydedildi" : `Transfer tamamlandı (${transferItems.length} ürün)`);
+      setView("list");
+    } catch(e) { notify("Hata: " + e.message, "error"); }
     setSubmitting(false);
   };
 
-  const fmt = (d) => new Date(d).toLocaleString("tr-TR", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+  const inputStyle = { width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" };
+  const selectStyle = { ...inputStyle, cursor: "pointer" };
 
-  const filtered = transfers.filter(t =>
-    !search || t.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-    t.from_location?.toLowerCase().includes(search.toLowerCase()) ||
-    t.to_location?.toLowerCase().includes(search.toLowerCase())
-  );
+  // ── LIST ──────────────────────────────────────────────────────────────────────
+  if (view === "list") {
+    const filtered = transfers.filter(t =>
+      !search || [t.product_name, t.from_location, t.to_location, t.irsaliye_no].some(v => v?.toLowerCase().includes(search.toLowerCase()))
+    );
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div>
+            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Transferler</h1>
+            <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>Depolar arası ürün transferlerini yönetin</p>
+          </div>
+          {canEdit && (
+            <button onClick={openNew} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Transfer Ekle
+            </button>
+          )}
+        </div>
 
-  const locOptions = locations.length > 0 ? locations.map(l => l.name || l) : [];
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
+          {[
+            { label: "Toplam Transfer", value: transfers.length, icon: "🔄" },
+            { label: "Bu Ay", value: transfers.filter(t => new Date(t.created_at).getMonth() === new Date().getMonth()).length, icon: "📅" },
+            { label: "Taslak", value: transfers.filter(t => t.status === "taslak").length, icon: "📝" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 22 }}>{s.icon}</span>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b" }}>{s.value}</div>
+                <div style={{ fontSize: 12, color: "#a8a29e" }}>{s.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ position: "relative", marginBottom: 14 }}>
+          <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="İrsaliye no, ürün veya lokasyon ara..."
+            style={{ width: "100%", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 12px 9px 36px", fontSize: 13.5, outline: "none", fontFamily: "inherit", color: "#1c1917" }} />
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+                {["İrsaliye No", "Çıkış Şubesi", "", "Giriş Şubesi", "Ürün", "Oluşturan", "Tarih", "Durum"].map(h => (
+                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Yükleniyor...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={8} style={{ padding: 48, textAlign: "center" }}>
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>🔄</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", marginBottom: 4 }}>Henüz transfer yok</div>
+                  <div style={{ fontSize: 13, color: "#a8a29e" }}>Transfer Ekle butonuna basarak başlayın</div>
+                </td></tr>
+              ) : filtered.map(t => (
+                <tr key={t.id} onClick={() => { setSelectedTransfer(t); setView("detail"); }}
+                  className="table-row" style={{ borderBottom: "1px solid #f5f5f4", cursor: "pointer" }}>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#18181b", fontFamily: "monospace" }}>{t.irsaliye_no || `TRF-${t.id?.slice(0,6)}`}</span>
+                  </td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f5f5f4", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#44403c" }}>📍 {t.from_location}</span>
+                  </td>
+                  <td style={{ padding: "0 2px", textAlign: "center" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                  </td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#16a34a" }}>📍 {t.to_location}</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", fontSize: 13, color: "#78716c" }}>
+                    {Array.isArray(t.items) ? `${t.items.length} ürün` : "1 ürün"}
+                  </td>
+                  <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c" }}>{t.username}</td>
+                  <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c", whiteSpace: "nowrap" }}>{fmt(t.created_at)}</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ background: t.status === "taslak" ? "#fef9c3" : "#f0fdf4", color: t.status === "taslak" ? "#ca8a04" : "#16a34a", border: `1px solid ${t.status === "taslak" ? "#fef08a" : "#bbf7d0"}`, borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 500, whiteSpace: "nowrap" }}>
+                      {t.status === "taslak" ? "📝 Taslak" : "✓ Tamamlandı"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DETAIL ────────────────────────────────────────────────────────────────────
+  if (view === "detail" && selectedTransfer) {
+    const t = selectedTransfer;
+    const itemsList = Array.isArray(t.items) ? t.items : [{ productName: t.product_name, productSku: t.product_sku, quantity: t.quantity }];
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", background: "#18181b", borderRadius: 10, padding: "11px 18px", marginBottom: 20, gap: 8 }}>
+          <button onClick={() => setView("list")} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 13, padding: 0, display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>Transferler
+          </button>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>{t.irsaliye_no || `TRF-${t.id?.slice(0,6)}`}</span>
+          <span style={{ marginLeft: "auto", background: t.status === "taslak" ? "#fef9c3" : "#dcfce7", color: t.status === "taslak" ? "#ca8a04" : "#16a34a", borderRadius: 99, padding: "3px 12px", fontSize: 12, fontWeight: 600 }}>
+            {t.status === "taslak" ? "Taslak" : "Tamamlandı"}
+          </span>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: 24, marginBottom: 14 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#18181b", margin: "0 0 16px" }}>Transfer Detay</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            {[["İrsaliye No", t.irsaliye_no || "-", true], ["Oluşturan", t.username], ["Çıkış Şubesi", t.from_location], ["Giriş Şubesi", t.to_location], ["Tarih", fmt(t.created_at)], ["Not", t.note || "-"]].map(([label, val, mono]) => (
+              <div key={label}>
+                <div style={{ fontSize: 11, color: "#a8a29e", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 14, color: "#18181b", fontWeight: 500, fontFamily: mono ? "monospace" : "inherit" }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+          <div style={{ padding: "13px 20px", borderBottom: "1px solid #f0eeed", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#18181b", margin: 0 }}>Ürünler</h3>
+            <span style={{ fontSize: 12.5, color: "#a8a29e" }}>{itemsList.length} ürün</span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr style={{ background: "#fafaf9" }}>
+              {["Ürün", "SKU", "Transfer Adedi"].map(h => <th key={h} style={{ padding: "9px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {itemsList.map((item, idx) => (
+                <tr key={idx} style={{ borderTop: "1px solid #f5f5f4" }}>
+                  <td style={{ padding: "11px 16px", fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{item.productName || item.product_name}</td>
+                  <td style={{ padding: "11px 16px", fontSize: 12, color: "#a8a29e", fontFamily: "monospace" }}>{item.productSku || item.product_sku}</td>
+                  <td style={{ padding: "11px 16px", fontSize: 15, fontWeight: 700, color: "#18181b" }}>{item.quantity}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: 20 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#18181b", margin: "0 0 16px", display: "flex", alignItems: "center", gap: 7 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Zaman Çizelgesi
+          </h3>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start", paddingLeft: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 99, background: "#22c55e", marginTop: 6, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>{t.status === "taslak" ? "Taslak olarak oluşturuldu" : "Transfer tamamlandı"}</div>
+              <div style={{ fontSize: 11.5, color: "#a8a29e", marginTop: 2 }}>{fmt(t.created_at)} · {t.username}</div>
+            </div>
+          </div>
+          {Array.isArray(t.comments) && t.comments.map((c, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", paddingLeft: 4, marginTop: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 99, background: "#3b82f6", marginTop: 6, flexShrink: 0 }} />
+              <div style={{ background: "#f5f5f4", borderRadius: 9, padding: "8px 12px" }}>
+                <div style={{ fontSize: 13, color: "#1c1917" }}>{c.text}</div>
+                <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 2 }}>{c.user}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{ marginTop: 16, fontSize: 11.5, color: "#a8a29e", display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            Yorumları sadece siz ve diğer personeller görebilir
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── NEW TRANSFER ──────────────────────────────────────────────────────────────
+  const productSearch = itemSearch.length > 0
+    ? products.filter(p =>
+        (p.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
+        p.sku.toLowerCase().includes(itemSearch.toLowerCase()) ||
+        p.barcode?.includes(itemSearch)) &&
+        !transferItems.find(i => i.productId === p.id)
+      ).slice(0, 8)
+    : [];
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em", color: "#18181b" }}>Transferler</h1>
-          <p style={{ color: "#a8a29e", margin: "4px 0 0", fontSize: 13 }}>Depolar arası ürün transferlerini yönetin</p>
-        </div>
-        {canEdit && (
-          <button onClick={openModal}
-            style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Yeni Transfer
+      {/* ── Black top bar ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#18181b", borderRadius: 10, padding: "11px 18px", marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setView("list")} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 13, padding: 0, display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Transferler
           </button>
-        )}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>Transfer Ekle</span>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => doTransfer(true)} disabled={submitting}
+            style={{ padding: "8px 18px", background: "transparent", border: "1px solid #404040", borderRadius: 8, color: "#d1d5db", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+            Taslak Olarak Kaydet
+          </button>
+          <button onClick={() => doTransfer(false)} disabled={submitting}
+            style={{ padding: "8px 20px", background: "#6366f1", border: "none", borderRadius: 8, color: "#fff", cursor: submitting ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "Kaydediliyor..." : "Kaydet ve Onayla"}
+          </button>
+        </div>
       </div>
 
-      {/* Stats row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
-        {[
-          { label: "Toplam Transfer", value: transfers.length, icon: "🔄" },
-          { label: "Bu Ay", value: transfers.filter(t => new Date(t.created_at).getMonth() === new Date().getMonth()).length, icon: "📅" },
-          { label: "Aktif Lokasyon", value: locOptions.length, icon: "📍" },
-        ].map(s => (
-          <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ fontSize: 22 }}>{s.icon}</div>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b" }}>{s.value}</div>
-              <div style={{ fontSize: 12, color: "#a8a29e" }}>{s.label}</div>
-            </div>
+      <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+
+        {/* ── Transfer Detay ── */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 20px", display: "flex", alignItems: "center", gap: 7 }}>
+            Transfer Detay
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8c4be" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </h3>
+
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>İrsaliye No <span style={{ color: "#ef4444" }}>*</span></label>
+            <input value={irsaliyeNo} onChange={e => setIrsaliyeNo(e.target.value)}
+              style={{ maxWidth: 400, ...inputStyle }} />
           </div>
-        ))}
-      </div>
 
-      {/* Search */}
-      <div style={{ position: "relative", marginBottom: 14 }}>
-        <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#a8a29e" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı veya lokasyon ile ara..."
-          style={{ width: "100%", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 12px 9px 36px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
-      </div>
-
-      {/* Table */}
-      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
-              {["Ürün", "Kaynak", "", "Hedef", "Miktar", "Yapan", "Tarih", "Durum"].map(h => (
-                <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Yükleniyor...</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={8} style={{ padding: 48, textAlign: "center" }}>
-                  <div style={{ fontSize: 28, marginBottom: 10 }}>🔄</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", marginBottom: 4 }}>Henüz transfer yapılmamış</div>
-                  <div style={{ fontSize: 13, color: "#a8a29e" }}>Sağ üstten yeni transfer oluşturabilirsiniz</div>
-                </td>
-              </tr>
-            ) : filtered.map(t => (
-              <tr key={t.id} style={{ borderBottom: "1px solid #f5f5f4" }} className="table-row">
-                <td style={{ padding: "12px 16px" }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{t.product_name}</div>
-                  <div style={{ fontSize: 11.5, color: "#a8a29e", fontFamily: "monospace" }}>{t.product_sku}</div>
-                </td>
-                <td style={{ padding: "12px 16px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f5f5f4", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#44403c" }}>
-                    📍 {t.from_location}
-                  </span>
-                </td>
-                <td style={{ padding: "0 4px", textAlign: "center" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-                </td>
-                <td style={{ padding: "12px 16px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 500, color: "#16a34a" }}>
-                    📍 {t.to_location}
-                  </span>
-                </td>
-                <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 15, color: "#18181b" }}>{t.quantity}</td>
-                <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c" }}>{t.username}</td>
-                <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c", whiteSpace: "nowrap" }}>{fmt(t.created_at)}</td>
-                <td style={{ padding: "12px 16px" }}>
-                  <span style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 500 }}>
-                    ✓ {t.status || "tamamlandı"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Transfer Modal */}
-      {modal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 520, boxShadow: "0 24px 64px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: "1px solid #f0eeed" }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#18181b" }}>Yeni Transfer</div>
-                <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>Depolar arası ürün transferi oluştur</div>
-              </div>
-              <button onClick={() => setModal(false)} style={{ width: 32, height: 32, background: "#f5f5f4", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#78716c" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-
-              {/* Product select */}
-              <div>
-                <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Ürün <span style={{ color: "#ef4444" }}>*</span></label>
-                <select value={form.productId} onChange={e => {
-                  const p = products.find(pr => pr.id === e.target.value);
-                  setForm(f => ({ ...f, productId: e.target.value, fromLocation: p?.location || "" }));
-                }} style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.productId ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                  <option value="">Ürün seçin...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {p.sku} (Stok: {p.stock})</option>)}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+            <div>
+              <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Çıkış Şubesi <span style={{ color: "#ef4444" }}>*</span></label>
+              {locOptions.length > 0 ? (
+                <select value={fromLoc} onChange={e => setFromLoc(e.target.value)} style={selectStyle}>
+                  <option value="">Seçin...</option>
+                  {locOptions.map(l => <option key={l}>{l}</option>)}
                 </select>
-                {form.productId && (() => {
-                  const p = products.find(pr => pr.id === form.productId);
-                  return p ? (
-                    <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "#a8a29e" }}>Mevcut Stok:</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: p.stock > 0 ? "#18181b" : "#ef4444" }}>{p.stock} adet</span>
-                      {p.location && <><span style={{ fontSize: 12, color: "#a8a29e" }}>· Lokasyon:</span><span style={{ fontSize: 12, fontWeight: 600, color: "#3b82f6" }}>{p.location}</span></>}
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-
-              {/* From / To locations */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 1fr", gap: 8, alignItems: "end" }}>
-                <div>
-                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Kaynak Lokasyon <span style={{ color: "#ef4444" }}>*</span></label>
-                  {locOptions.length > 0 ? (
-                    <select value={form.fromLocation} onChange={e => setForm(f => ({ ...f, fromLocation: e.target.value }))}
-                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.fromLocation ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", fontFamily: "inherit" }}>
-                      <option value="">Seçin...</option>
-                      {locOptions.map(l => <option key={l}>{l}</option>)}
-                    </select>
-                  ) : (
-                    <input value={form.fromLocation} onChange={e => setForm(f => ({ ...f, fromLocation: e.target.value }))} placeholder="Kaynak depo..."
-                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
-                  )}
-                </div>
-                <div style={{ display: "flex", justifyContent: "center", paddingBottom: 10 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-                </div>
-                <div>
-                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Hedef Lokasyon <span style={{ color: "#ef4444" }}>*</span></label>
-                  {locOptions.length > 0 ? (
-                    <select value={form.toLocation} onChange={e => setForm(f => ({ ...f, toLocation: e.target.value }))}
-                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: form.toLocation ? "#1c1917" : "#a8a29e", fontSize: 14, outline: "none", fontFamily: "inherit" }}>
-                      <option value="">Seçin...</option>
-                      {locOptions.map(l => <option key={l}>{l}</option>)}
-                    </select>
-                  ) : (
-                    <input value={form.toLocation} onChange={e => setForm(f => ({ ...f, toLocation: e.target.value }))} placeholder="Hedef depo..."
-                      style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
-                  )}
-                </div>
-              </div>
-
-              {/* Quantity + Note */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Miktar <span style={{ color: "#ef4444" }}>*</span></label>
-                  <input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0"
-                    style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
-                </div>
-                <div>
-                  <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Not (opsiyonel)</label>
-                  <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Transfer notu..."
-                    style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", color: "#1c1917", fontSize: 14, outline: "none", fontFamily: "inherit" }} />
-                </div>
-              </div>
-
-              {/* Warning if insufficient stock */}
-              {form.productId && form.quantity && (() => {
-                const p = products.find(pr => pr.id === form.productId);
-                const qty = parseInt(form.quantity);
-                if (p && qty > p.stock) return (
-                  <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "10px 14px", fontSize: 13, color: "#dc2626", display: "flex", gap: 8 }}>
-                    <span>⚠️</span> Yetersiz stok! Mevcut stok: <strong>{p.stock}</strong>
-                  </div>
-                );
-                return null;
-              })()}
+              ) : (
+                <input value={fromLoc} onChange={e => setFromLoc(e.target.value)} placeholder="Çıkış lokasyonu..." style={inputStyle} />
+              )}
             </div>
-            <div style={{ display: "flex", gap: 10, padding: "16px 24px", borderTop: "1px solid #f0eeed", background: "#fafaf9" }}>
-              <button onClick={() => setModal(false)} style={{ flex: 1, padding: "10px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
-                İptal
-              </button>
-              <button onClick={doTransfer} disabled={submitting}
-                style={{ flex: 2, padding: "10px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: submitting ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 600, opacity: submitting ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {submitting ? "İşleniyor..." : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg> Transferi Onayla</>}
-              </button>
+            <div>
+              <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Giriş Şubesi <span style={{ color: "#ef4444" }}>*</span></label>
+              {locOptions.length > 0 ? (
+                <select value={toLoc} onChange={e => setToLoc(e.target.value)} style={selectStyle}>
+                  <option value="">Seçin...</option>
+                  {locOptions.map(l => <option key={l}>{l}</option>)}
+                </select>
+              ) : (
+                <input value={toLoc} onChange={e => setToLoc(e.target.value)} placeholder="Giriş lokasyonu..." style={inputStyle} />
+              )}
             </div>
           </div>
         </div>
-      )}
+
+        {/* ── Ürünler ── */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: 0, display: "flex", alignItems: "center", gap: 7 }}>
+              Ürünler
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8c4be" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </h3>
+            {/* Barkod input */}
+            <div style={{ position: "relative" }}>
+              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="21" y2="14"/><line x1="14" y1="18" x2="21" y2="18"/><line x1="14" y1="21" x2="17" y2="21"/></svg>
+              <input ref={barcodeRef} value={barcodeInput} onChange={e => setBarcodeInput(e.target.value)} onKeyDown={addByBarcode}
+                placeholder="Barkod ile Okut"
+                style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "7px 12px 7px 32px", color: "#1c1917", fontSize: 13, outline: "none", fontFamily: "inherit", width: 170 }} />
+            </div>
+          </div>
+
+          {/* Product search dropdown */}
+          <div style={{ position: "relative", marginBottom: 16 }}>
+            <svg style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input ref={itemSearchRef} value={itemSearch} onChange={e => setItemSearch(e.target.value)} placeholder="Ürün ara.."
+              style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 12px 9px 32px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit", width: 260 }} />
+            {productSearch.length > 0 && (
+              <div style={{ position: "absolute", top: "100%", left: 0, width: 320, background: "#fff", border: "1px solid #e7e5e4", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.1)", zIndex: 200, marginTop: 4, overflow: "hidden" }}>
+                {productSearch.map(p => (
+                  <div key={p.id} onClick={() => addItem(p)}
+                    style={{ padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f5f5f4" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#fafaf9"}
+                    onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{p.name}</div>
+                      <div style={{ fontSize: 11.5, color: "#a8a29e", fontFamily: "monospace" }}>{p.sku} · Stok: {p.stock}{p.location ? ` · ${p.location}` : ""}</div>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Items table */}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#f9f9f8", borderRadius: 8 }}>
+                {["Ürün", "Çıkış Şube Stoğu", "Transfer Adedi", ""].map(h => (
+                  <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #f0eeed" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {transferItems.length === 0 ? (
+                <tr><td colSpan={4} style={{ padding: "32px 14px", textAlign: "center", color: "#a8a29e", fontSize: 13 }}>
+                  Yukarıdan ürün arayın veya barkod ile ekleyin
+                </td></tr>
+              ) : transferItems.map(item => {
+                const p = products.find(pr => pr.id === item.productId);
+                if (!p) return null;
+                const bad = item.quantity > p.stock;
+                return (
+                  <tr key={item.productId} style={{ borderBottom: "1px solid #f5f5f4", background: bad ? "#fffbeb" : "#fff" }}>
+                    <td style={{ padding: "11px 14px" }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, color: "#18181b" }}>{p.name}</div>
+                      <div style={{ fontSize: 11.5, color: "#a8a29e", fontFamily: "monospace" }}>{p.sku}</div>
+                    </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: p.stock > 0 ? "#18181b" : "#ef4444" }}>{p.stock}</span>
+                      {p.location && <span style={{ fontSize: 11.5, color: "#a8a29e", marginLeft: 6 }}>({p.location})</span>}
+                    </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button onClick={() => updateQty(item.productId, item.quantity - 1)}
+                          style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid #e7e5e4", background: "#fafaf9", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "#44403c", lineHeight: 1 }}>−</button>
+                        <input type="number" min="0" value={item.quantity} onChange={e => updateQty(item.productId, parseInt(e.target.value) || 0)}
+                          style={{ width: 64, textAlign: "center", background: bad ? "#fef3c7" : "#fafaf9", border: `1px solid ${bad ? "#fcd34d" : "#e7e5e4"}`, borderRadius: 8, padding: "5px", color: bad ? "#92400e" : "#1c1917", fontSize: 14, fontWeight: 700, outline: "none", fontFamily: "inherit" }} />
+                        <button onClick={() => updateQty(item.productId, item.quantity + 1)}
+                          style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid #e7e5e4", background: "#fafaf9", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "#44403c", lineHeight: 1 }}>+</button>
+                        {bad && <span style={{ fontSize: 11, color: "#d97706", fontWeight: 500 }}>⚠ Yetersiz</span>}
+                      </div>
+                    </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <button onClick={() => removeItem(item.productId)}
+                        style={{ width: 28, height: 28, background: "#fef2f2", border: "none", borderRadius: 7, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Zaman Çizelgesi ── */}
+        <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 18px", display: "flex", alignItems: "center", gap: 7 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Zaman Çizelgesi
+          </h3>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 99, background: "#f0f9ff", border: "1px solid #bfdbfe", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, fontWeight: 700, color: "#3b82f6" }}>
+              {(user.name || user.username || "").slice(0,2).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, position: "relative" }}>
+              <input value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => e.key === "Enter" && sendComment()}
+                placeholder="Yorum yaz..."
+                style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "9px 80px 9px 14px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+              <button onClick={sendComment}
+                style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", padding: "5px 12px", background: comment.trim() ? "#6366f1" : "#f0eeed", border: "none", borderRadius: 7, color: comment.trim() ? "#fff" : "#a8a29e", cursor: comment.trim() ? "pointer" : "default", fontSize: 12, fontWeight: 600, transition: "all 0.15s" }}>
+                Gönder
+              </button>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11.5, color: "#a8a29e", display: "flex", alignItems: "center", gap: 5, marginBottom: comments.length > 0 ? 16 : 0 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            Yorumları sadece siz ve diğer personeller görebilir
+          </div>
+
+          {comments.length === 0 && (
+            <div style={{ textAlign: "center", padding: "24px 0 8px" }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "#f0f0ee", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 8px", fontSize: 20 }}>⚡</div>
+              <div style={{ fontSize: 13, color: "#a8a29e" }}>Veri Yok</div>
+            </div>
+          )}
+
+          {comments.map((c, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 12 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 99, background: "#f0f9ff", border: "1px solid #bfdbfe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#3b82f6", flexShrink: 0 }}>
+                {c.user.slice(0,2).toUpperCase()}
+              </div>
+              <div style={{ background: "#f5f5f4", borderRadius: 9, padding: "9px 13px", flex: 1 }}>
+                <div style={{ fontSize: 13, color: "#1c1917" }}>{c.text}</div>
+                <div style={{ fontSize: 11, color: "#a8a29e", marginTop: 2 }}>{c.user}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+      </div>
     </div>
   );
 }
+
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
