@@ -489,6 +489,7 @@ export default function App() {
     purchasing: <PurchasingPage suppliers={suppliers} setSuppliers={setSuppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} />,
   };
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navItems = [
     { id: "dashboard", label: "Özet", icon: "dashboard" },
     { id: "products", label: "Ürünler", icon: "products" },
@@ -497,6 +498,13 @@ export default function App() {
     { id: "purchasing", label: "Satın Alma", icon: "purchasing" },
     { id: "reports", label: "Raporlar", icon: "reports" },
     { id: "settings", label: "Ayarlar", icon: "settings" },
+  ];
+  const mobileNavItems = [
+    { id: "dashboard", label: "Özet", icon: "dashboard" },
+    { id: "products", label: "Ürünler", icon: "products" },
+    { id: "movements", label: "Hareket", icon: "movements" },
+    { id: "counting", label: "Sayım", icon: "scan" },
+    { id: "more", label: "Daha", icon: "settings" },
   ];
 
   return (
@@ -533,10 +541,29 @@ export default function App() {
         @keyframes slideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
         @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+
+        /* ── Mobile ── */
+        @media (max-width: 768px) {
+          .desktop-sidebar { display: none !important; }
+          .mobile-nav { display: flex !important; }
+          .main-content { margin-left: 0 !important; padding: 70px 14px 80px !important; }
+          .stat-grid-4 { grid-template-columns: repeat(2,1fr) !important; }
+          .stat-grid-3 { grid-template-columns: 1fr !important; }
+          .chart-row { grid-template-columns: 1fr !important; }
+          .two-col { grid-template-columns: 1fr !important; }
+          .counting-layout { grid-template-columns: 1fr !important; }
+          .counting-sidebar { display: none !important; }
+          .hide-mobile { display: none !important; }
+          .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
+        @media (min-width: 769px) {
+          .mobile-nav { display: none !important; }
+          .mobile-menu-overlay { display: none !important; }
+        }
       `}</style>
 
       {/* Sidebar */}
-      <aside style={{ width: 220, background: "#fff", borderRight: "1px solid #e7e5e4", display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 100 }}>
+      <aside className="desktop-sidebar" style={{ width: 220, background: "#fff", borderRight: "1px solid #e7e5e4", display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 100 }}>
         <div style={{ padding: "16px 14px 13px", borderBottom: "1px solid #f5f5f4" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
             <div style={{ width: 30, height: 30, background: "#fafaf9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -575,16 +602,93 @@ export default function App() {
       </aside>
 
       {/* Main */}
-      <main style={{ flex: 1, marginLeft: 220, padding: "28px 32px", overflow: "auto", background: "#fafaf9" }}>
+      <main className="main-content" style={{ flex: 1, marginLeft: 220, padding: "28px 32px", overflow: "auto", background: "#fafaf9", minHeight: "100vh" }}>
         {pages[page]}
       </main>
 
       {/* Notification */}
       {notification && (
-        <div style={{ position: "fixed", top: 20, right: 20, background: notification.type === "success" ? "#166534" : "#991b1b", border: `1px solid ${notification.type === "success" ? "#16a34a" : "#dc2626"}`, borderRadius: 12, padding: "12px 20px", color: "#fff", fontSize: 14, fontWeight: 500, animation: "slideIn 0.2s ease", zIndex: 9999, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ position: "fixed", top: 20, right: 20, left: 20, background: notification.type === "success" ? "#166534" : "#991b1b", border: `1px solid ${notification.type === "success" ? "#16a34a" : "#dc2626"}`, borderRadius: 12, padding: "12px 20px", color: "#fff", fontSize: 14, fontWeight: 500, animation: "slideIn 0.2s ease", zIndex: 9999, display: "flex", alignItems: "center", gap: 8, maxWidth: 420, margin: "0 auto" }}>
           {notification.type === "success" ? <Icon name="check" size={16} /> : <Icon name="warning" size={16} />}
           {notification.msg}
         </div>
+      )}
+
+      {/* Mobile top bar */}
+      <div className="mobile-nav" style={{ position: "fixed", top: 0, left: 0, right: 0, height: 54, background: "#fff", borderBottom: "1px solid #e7e5e4", zIndex: 200, alignItems: "center", justifyContent: "space-between", padding: "0 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{ width: 26, height: 26, background: "#18181b", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 15, color: "#18181b" }}>StokPro</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {criticalProducts.length > 0 && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "3px 8px", fontSize: 11.5, fontWeight: 600, color: "#dc2626" }}>
+              ⚠ {criticalProducts.length} kritik
+            </div>
+          )}
+          <span style={{ fontSize: 12.5, color: "#78716c", fontWeight: 500 }}>{user.name}</span>
+        </div>
+      </div>
+
+      {/* Mobile bottom nav */}
+      <div className="mobile-nav" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: "#fff", borderTop: "1px solid #e7e5e4", zIndex: 200, alignItems: "center", justifyContent: "space-around", padding: "0 4px", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {mobileNavItems.map(item => {
+          const isActive = item.id === "more" ? ["purchasing","reports","settings"].includes(page) : page === item.id;
+          return (
+            <button key={item.id}
+              onClick={() => {
+                if (item.id === "more") setMobileMenuOpen(true);
+                else { setPage(item.id); setMobileMenuOpen(false); }
+              }}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", color: isActive ? "#18181b" : "#a8a29e", flex: 1 }}>
+              <div style={{ position: "relative" }}>
+                <Icon name={item.icon} size={20} />
+                {item.id === "products" && criticalProducts.length > 0 && (
+                  <div style={{ position: "absolute", top: -4, right: -6, width: 14, height: 14, background: "#ef4444", borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontSize: 8, color: "#fff", fontWeight: 700 }}>{criticalProducts.length > 9 ? "9+" : criticalProducts.length}</span>
+                  </div>
+                )}
+              </div>
+              <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400 }}>{item.label}</span>
+              {isActive && <div style={{ position: "absolute", bottom: 0, width: 20, height: 2, background: "#18181b", borderRadius: 99 }} />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Mobile slide-over menu */}
+      {mobileMenuOpen && (
+        <>
+          <div onClick={() => setMobileMenuOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 300 }} />
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderRadius: "20px 20px 0 0", zIndex: 301, padding: "20px 16px", paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}>
+            <div style={{ width: 36, height: 4, background: "#e7e5e4", borderRadius: 99, margin: "0 auto 20px" }} />
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, paddingLeft: 4 }}>Menü</div>
+            {[
+              { id: "purchasing", label: "Satın Alma", icon: "purchasing" },
+              { id: "reports", label: "Raporlar", icon: "reports" },
+              { id: "settings", label: "Ayarlar", icon: "settings" },
+            ].map(item => (
+              <button key={item.id} onClick={() => { setPage(item.id); setMobileMenuOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 14px", background: page === item.id ? "#f5f5f4" : "transparent", border: "none", borderRadius: 11, cursor: "pointer", marginBottom: 4, color: "#1c1917", fontSize: 15, fontWeight: page === item.id ? 600 : 400 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 9, background: page === item.id ? "#18181b" : "#f5f5f4", display: "flex", alignItems: "center", justifyContent: "center", color: page === item.id ? "#fff" : "#78716c" }}>
+                  <Icon name={item.icon} size={17} />
+                </div>
+                {item.label}
+                {page === item.id && <span style={{ marginLeft: "auto", color: "#18181b" }}>✓</span>}
+              </button>
+            ))}
+            <div style={{ borderTop: "1px solid #f5f5f4", marginTop: 8, paddingTop: 12 }}>
+              <button onClick={handleLogout} style={{ display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 14px", background: "transparent", border: "none", borderRadius: 11, cursor: "pointer", color: "#dc2626", fontSize: 15 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 9, background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="logout" size={17} color="#dc2626" />
+                </div>
+                Çıkış Yap
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -674,7 +778,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
       </div>
 
       {/* Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
+      <div className="stat-grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
         <StatCard title="Toplam Ürün" value={products.length} sub="Tanımlı ürün" icon="products" color="#3b82f6" />
         <StatCard title="Toplam Stok" value={totalStock.toLocaleString("tr-TR")} sub="Tüm ürünler" icon="inventory" color="#44403c" />
         <StatCard title="Kritik Stok" value={criticalProducts.length} sub="Min. seviye altı" icon="warning" color={criticalProducts.length > 0 ? "#dc2626" : "#16a34a"} />
@@ -682,7 +786,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
       </div>
 
       {/* Financial Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+      <div className="stat-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
         <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "16px 18px" }}>
           <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Stok Maliyet Değeri</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b", letterSpacing: "-0.02em" }}>₺{totalStockValue.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -701,7 +805,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
       </div>
 
       {/* Charts Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 12, marginBottom: 12 }}>
+      <div className="chart-row" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 12, marginBottom: 12 }}>
 
         {/* Line Chart - Son 7 Gün Hareketler */}
         <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
@@ -772,7 +876,7 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
       </div>
 
       {/* Bottom Row: Recent + Critical */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {/* Recent movements */}
         <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "20px 22px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1729,7 +1833,7 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
       </div>
 
       {/* 2 col layout: main + sidebar */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14, alignItems: "start" }}>
+      <div className="counting-layout" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14, alignItems: "start" }}>
 
         {/* LEFT: ürün listesi */}
         <div>
@@ -1826,7 +1930,7 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         </div>
 
         {/* RIGHT: Son Aksiyonlar */}
-        <div style={{ position: "sticky", top: 20 }}>
+        <div className="counting-sidebar" style={{ position: "sticky", top: 20 }}>
           {/* Özet */}
           <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 11, padding: "14px 16px", marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Sayım Özeti</div>
