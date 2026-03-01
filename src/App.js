@@ -55,21 +55,40 @@ const mapOrderItem = (r) => ({
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 // ─── CAMERA BARCODE SCANNER ───────────────────────────────────────────────────
-// ZXing kütüphanesi CDN üzerinden yüklenir, bileşen mount olunca dinamik import
 function CameraScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const readerRef = useRef(null);
+  const animRef = useRef(null);
+  const lastCodeRef = useRef(null);
+  const lastTimeRef = useRef(0);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastResult, setLastResult] = useState(null);
   const [torchOn, setTorchOn] = useState(false);
   const [facingMode, setFacingMode] = useState("environment");
+  const [libLoaded, setLibLoaded] = useState(false);
 
   const stopCamera = () => {
-    if (readerRef.current) { try { readerRef.current.reset(); } catch(e) {} }
+    if (animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
   };
+
+  // Load ZXing from CDN
+  const loadZXing = () => new Promise((resolve, reject) => {
+    if (window.ZXing) { resolve(); return; }
+    // Remove any failed previous attempt
+    document.querySelectorAll('script[data-zxing]').forEach(s => s.remove());
+    const s = document.createElement("script");
+    s.setAttribute("data-zxing", "1");
+    s.src = "https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js";
+    s.onload = () => {
+      if (window.ZXing) resolve();
+      else reject(new Error("ZXing nesnesi bulunamadı"));
+    };
+    s.onerror = () => reject(new Error("ZXing CDN yüklenemedi — internet bağlantısını kontrol edin"));
+    document.head.appendChild(s);
+  });
 
   const startScanner = async (facing) => {
     setLoading(true);
@@ -77,66 +96,55 @@ function CameraScanner({ onDetected, onClose }) {
     stopCamera();
 
     try {
-      // Load ZXing dynamically from CDN if not already loaded
-      if (!window.ZXing) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://unpkg.com/@zxing/library@latest/umd/index.min.js";
-          s.onload = resolve;
-          s.onerror = () => reject(new Error("ZXing yüklenemedi"));
-          document.head.appendChild(s);
-        });
-      }
+      await loadZXing();
+      setLibLoaded(true);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
+      const constraints = {
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      const video = videoRef.current;
+      if (!video) throw new Error("Video elementi bulunamadı");
+      video.srcObject = stream;
+      video.setAttribute("playsinline", true);
+      await video.play();
 
+      // Use ZXing BrowserMultiFormatReader with decodeFromStream (v0.19)
       const hints = new Map();
-      const formats = [
-        window.ZXing.BarcodeFormat.EAN_13,
-        window.ZXing.BarcodeFormat.EAN_8,
-        window.ZXing.BarcodeFormat.CODE_128,
-        window.ZXing.BarcodeFormat.CODE_39,
-        window.ZXing.BarcodeFormat.QR_CODE,
-        window.ZXing.BarcodeFormat.DATA_MATRIX,
-        window.ZXing.BarcodeFormat.UPC_A,
-        window.ZXing.BarcodeFormat.UPC_E,
-      ];
-      hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
       hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+      const codeReader = new window.ZXing.BrowserMultiFormatReader(hints, 300);
 
-      const reader = new window.ZXing.BrowserMultiFormatReader(hints);
-      readerRef.current = reader;
-
-      let lastCode = null;
-      let lastTime = 0;
-
-      reader.decodeFromVideoElement(videoRef.current, (result, err) => {
+      // decodeFromStream is available in 0.19.x
+      codeReader.decodeFromStream(stream, video, (result, err) => {
         if (result) {
           const code = result.getText();
           const now = Date.now();
-          // Debounce: aynı kodu 1.5 saniye içinde tekrar okuma
-          if (code !== lastCode || now - lastTime > 1500) {
-            lastCode = code;
-            lastTime = now;
+          if (code !== lastCodeRef.current || now - lastTimeRef.current > 1500) {
+            lastCodeRef.current = code;
+            lastTimeRef.current = now;
             setLastResult(code);
-            // Kısa titreşim feedback
-            if (navigator.vibrate) navigator.vibrate(80);
+            if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
             onDetected(code);
           }
         }
+        // Ignore NotFoundException — it just means no barcode in frame yet
       });
 
       setLoading(false);
     } catch (err) {
-      setError(err.message || "Kamera açılamadı");
+      console.error("Camera error:", err);
+      let msg = err.message || "Bilinmeyen hata";
+      if (err.name === "NotAllowedError") msg = "Kamera izni reddedildi. Tarayıcı ayarlarından kamera iznini açın.";
+      else if (err.name === "NotFoundError") msg = "Kamera bulunamadı.";
+      else if (err.name === "NotReadableError") msg = "Kamera başka bir uygulama tarafından kullanılıyor.";
+      setError(msg);
       setLoading(false);
     }
   };
@@ -158,87 +166,99 @@ function CameraScanner({ onDetected, onClose }) {
     try {
       await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
       setTorchOn(t => !t);
-    } catch(e) { notify && notify("Flaş bu cihazda desteklenmiyor", "error"); }
+    } catch(e) { /* torch not supported */ }
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       {/* Header */}
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)", zIndex: 10 }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)", zIndex: 10 }}>
         <div style={{ color: "#fff" }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>Barkod Tara</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>Kamerayı barkoda doğrultun</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
+            {libLoaded ? "Kamerayı barkoda doğrultun" : "Kütüphane yükleniyor..."}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={switchCamera} style={{ width: 38, height: 38, borderRadius: 99, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-            title="Kamera değiştir">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={switchCamera} style={{ width: 40, height: 40, borderRadius: 99, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
-          <button onClick={toggleTorch} style={{ width: 38, height: 38, borderRadius: 99, background: torchOn ? "rgba(255,220,50,0.3)" : "rgba(255,255,255,0.15)", border: torchOn ? "1px solid rgba(255,220,50,0.5)" : "none", color: torchOn ? "#ffd932" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-            title="Flaş">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <button onClick={toggleTorch} style={{ width: 40, height: 40, borderRadius: 99, background: torchOn ? "rgba(255,220,50,0.25)" : "rgba(255,255,255,0.12)", border: torchOn ? "1px solid rgba(255,220,50,0.4)" : "1px solid rgba(255,255,255,0.15)", color: torchOn ? "#ffd932" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </button>
-          <button onClick={() => { stopCamera(); onClose(); }} style={{ width: 38, height: 38, borderRadius: 99, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <button onClick={() => { stopCamera(); onClose(); }} style={{ width: 40, height: 40, borderRadius: 99, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
 
-      {/* Video */}
-      <div style={{ position: "relative", width: "100%", maxWidth: 480, aspectRatio: "4/3" }}>
-        <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: loading || error ? "none" : "block" }} muted playsInline />
+      {/* Video area */}
+      <div style={{ position: "relative", width: "min(100vw, 480px)", aspectRatio: "4/3", background: "#000", overflow: "hidden" }}>
+        <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline />
 
-        {/* Tarama çerçevesi */}
+        {/* Scan frame overlay */}
         {!loading && !error && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-            <div style={{ width: "70%", height: "35%", position: "relative" }}>
-              {/* Köşeler */}
-              {[{top:0,left:0,borderTop:"3px solid #fff",borderLeft:"3px solid #fff",borderRadius:"6px 0 0 0"},
-                {top:0,right:0,borderTop:"3px solid #fff",borderRight:"3px solid #fff",borderRadius:"0 6px 0 0"},
-                {bottom:0,left:0,borderBottom:"3px solid #fff",borderLeft:"3px solid #fff",borderRadius:"0 0 0 6px"},
-                {bottom:0,right:0,borderBottom:"3px solid #fff",borderRight:"3px solid #fff",borderRadius:"0 0 6px 0"}
+            {/* Dim overlay */}
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)" }} />
+            {/* Clear scan window */}
+            <div style={{ position: "relative", width: "72%", height: "38%", zIndex: 2 }}>
+              <div style={{ position: "absolute", inset: 0, background: "transparent", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)", borderRadius: 4 }} />
+              {/* Corner marks */}
+              {[{top:0,left:0,borderTop:"3px solid #22c55e",borderLeft:"3px solid #22c55e",borderRadius:"5px 0 0 0"},
+                {top:0,right:0,borderTop:"3px solid #22c55e",borderRight:"3px solid #22c55e",borderRadius:"0 5px 0 0"},
+                {bottom:0,left:0,borderBottom:"3px solid #22c55e",borderLeft:"3px solid #22c55e",borderRadius:"0 0 0 5px"},
+                {bottom:0,right:0,borderBottom:"3px solid #22c55e",borderRight:"3px solid #22c55e",borderRadius:"0 0 5px 0"}
               ].map((s, i) => (
-                <div key={i} style={{ position: "absolute", width: 24, height: 24, ...s }} />
+                <div key={i} style={{ position: "absolute", width: 22, height: 22, ...s }} />
               ))}
-              {/* Scan line animasyonu */}
-              <div style={{ position: "absolute", left: 4, right: 4, height: 2, background: "linear-gradient(90deg, transparent, #22c55e, transparent)", animation: "scanLine 1.8s ease-in-out infinite" }} />
+              {/* Animated scan line */}
+              <div style={{ position: "absolute", left: 6, right: 6, height: 2, background: "linear-gradient(90deg, transparent, #22c55e, transparent)", borderRadius: 99, animation: "scanLine 1.6s ease-in-out infinite" }} />
             </div>
           </div>
         )}
 
         {loading && (
-          <div style={{ position: "absolute", inset: 0, background: "#000", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <div style={{ width: 32, height: 32, border: "3px solid rgba(255,255,255,0.2)", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>Kamera başlatılıyor...</div>
+          <div style={{ position: "absolute", inset: 0, background: "#111", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+            <div style={{ width: 36, height: 36, border: "3px solid rgba(255,255,255,0.15)", borderTop: "3px solid #22c55e", borderRadius: "50%", animation: "spin 0.9s linear infinite" }} />
+            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>Kamera başlatılıyor...</div>
           </div>
         )}
+
         {error && (
-          <div style={{ position: "absolute", inset: 0, background: "#000", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, textAlign: "center" }}>{error}</div>
-            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, textAlign: "center" }}>Tarayıcı ayarlarından kamera iznini kontrol edin</div>
-            <button onClick={() => startScanner(facingMode)} style={{ marginTop: 8, padding: "9px 20px", background: "#fff", border: "none", borderRadius: 9, color: "#18181b", fontWeight: 600, cursor: "pointer", fontSize: 13 }}>Tekrar Dene</button>
+          <div style={{ position: "absolute", inset: 0, background: "#111", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 28, textAlign: "center" }}>
+            <div style={{ width: 52, height: 52, borderRadius: 99, background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Kamera Açılamadı</div>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12.5, lineHeight: 1.5 }}>{error}</div>
+            <button onClick={() => startScanner(facingMode)} style={{ marginTop: 4, padding: "9px 22px", background: "#22c55e", border: "none", borderRadius: 9, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 13 }}>
+              Tekrar Dene
+            </button>
           </div>
         )}
       </div>
 
-      {/* Son okunan */}
-      <div style={{ marginTop: 20, padding: "14px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, minWidth: 280, textAlign: "center" }}>
+      {/* Result display */}
+      <div style={{ marginTop: 18, padding: "14px 24px", background: "rgba(255,255,255,0.07)", border: `1px solid ${lastResult ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, minWidth: 280, textAlign: "center", transition: "border-color 0.3s" }}>
         {lastResult ? (
           <>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Son Okunan</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e", fontFamily: "monospace", letterSpacing: "0.05em" }}>{lastResult}</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>✓ Barkod Okundu</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#22c55e", fontFamily: "monospace", letterSpacing: "0.06em" }}>{lastResult}</div>
           </>
         ) : (
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>Henüz barkod okunmadı</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>Barkod bekleniyor...</div>
         )}
+      </div>
+
+      <div style={{ marginTop: 10, color: "rgba(255,255,255,0.25)", fontSize: 11 }}>
+        Okuma sonrası panel otomatik güncellenir
       </div>
 
       <style>{`
         @keyframes scanLine {
-          0% { top: 4px; opacity: 1; }
-          50% { top: calc(100% - 6px); opacity: 1; }
-          100% { top: 4px; opacity: 1; }
+          0%,100% { top: 4px; }
+          50% { top: calc(100% - 6px); }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
