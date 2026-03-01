@@ -506,6 +506,7 @@ export default function App() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [categories, setCategories] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_cats")) || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; } });
   const [brands, setBrands] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_brands")) || DEFAULT_BRANDS; } catch { return DEFAULT_BRANDS; } });
+  const [locations, setLocations] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_locations")) || []; } catch { return []; } });
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -552,6 +553,8 @@ export default function App() {
           const brnds = settingsData.find(s => s.key === "brands");
           if (cats?.value) { setCategories(cats.value); localStorage.setItem("stokpro_cats", JSON.stringify(cats.value)); }
           if (brnds?.value) { setBrands(brnds.value); localStorage.setItem("stokpro_brands", JSON.stringify(brnds.value)); }
+          const locs = settingsData.find(s => s.key === "locations");
+          if (locs?.value) { setLocations(locs.value); localStorage.setItem("stokpro_locations", JSON.stringify(locs.value)); }
         }
       } catch (e) { notify("Veriler yüklenirken hata oluştu", "error"); }
       setLoading(false);
@@ -580,7 +583,7 @@ export default function App() {
       case "movements": return <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />;
       case "counting": return <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
       case "reports": return <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />;
-      case "settings": return <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} />;
+      case "settings": return <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} locations={locations} setLocations={setLocations} />;
       case "purchasing": return <PurchasingPage suppliers={suppliers} setSuppliers={setSuppliers} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} />;
       default: return <Dashboard products={products} movements={movements} criticalProducts={criticalProducts} setPage={setPage} />;
     }
@@ -2722,6 +2725,149 @@ function ReportsPage({ products, movements, criticalProducts }) {
 }
 
 // ─── LIST MANAGER ─────────────────────────────────────────────────────────────
+function LocationManager({ locations, onSave }) {
+  const [list, setList] = useState(locations.map((l, i) => typeof l === "string" ? { id: Date.now() + i, name: l, description: "", type: "depo" } : l));
+  const [form, setForm] = useState({ name: "", description: "", type: "depo" });
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const TYPES = [
+    { value: "depo", label: "Depo", icon: "🏭", color: "#3b82f6" },
+    { value: "magaza", label: "Mağaza", icon: "🏪", color: "#22c55e" },
+    { value: "raf", label: "Raf", icon: "📦", color: "#f59e0b" },
+    { value: "diger", label: "Diğer", icon: "📍", color: "#a8a29e" },
+  ];
+
+  const typeInfo = (t) => TYPES.find(x => x.value === t) || TYPES[3];
+
+  const doSave = async (updated) => {
+    setSaving(true); setSaved(false);
+    try { await onSave(updated); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch(e) {}
+    setSaving(false);
+  };
+
+  const add = () => {
+    if (!form.name.trim()) return;
+    if (list.find(l => l.name.toLowerCase() === form.name.trim().toLowerCase())) return;
+    const newItem = { id: Date.now(), name: form.name.trim(), description: form.description.trim(), type: form.type };
+    const updated = [...list, newItem];
+    setList(updated);
+    doSave(updated);
+    setForm({ name: "", description: "", type: "depo" });
+  };
+
+  const remove = (id) => {
+    const updated = list.filter(l => l.id !== id);
+    setList(updated);
+    doSave(updated);
+  };
+
+  const startEdit = (item) => {
+    setEditId(item.id);
+    setForm({ name: item.name, description: item.description || "", type: item.type || "depo" });
+  };
+
+  const saveEdit = () => {
+    if (!form.name.trim()) return;
+    const updated = list.map(l => l.id === editId ? { ...l, name: form.name.trim(), description: form.description.trim(), type: form.type } : l);
+    setList(updated);
+    doSave(updated);
+    setEditId(null);
+    setForm({ name: "", description: "", type: "depo" });
+  };
+
+  return (
+    <div>
+      {/* Add / Edit form */}
+      <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>
+            {editId ? "Lokasyon Düzenle" : "Yeni Lokasyon Ekle"}
+          </h4>
+          <div style={{ fontSize: 11.5, fontWeight: 500 }}>
+            {saving && <span style={{ color: "#a8a29e" }}>⏳ Kaydediliyor...</span>}
+            {saved && !saving && <span style={{ color: "#16a34a" }}>✓ Kaydedildi</span>}
+          </div>
+        </div>
+
+        {/* Type selector */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {TYPES.map(t => (
+            <button key={t.value} onClick={() => setForm(f => ({ ...f, type: t.value }))}
+              style={{ flex: 1, padding: "8px 4px", borderRadius: 9, border: `2px solid ${form.type === t.value ? t.color : "#e7e5e4"}`, background: form.type === t.value ? `${t.color}12` : "#fafaf9", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, transition: "all 0.1s" }}>
+              <span style={{ fontSize: 16 }}>{t.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: form.type === t.value ? 600 : 400, color: form.type === t.value ? t.color : "#a8a29e" }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onKeyDown={e => e.key === "Enter" && !editId && add()}
+            placeholder="Lokasyon adı (örn: Ana Depo, A Rafı...)"
+            style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+          <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="Açıklama (isteğe bağlı)"
+            style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, padding: "9px 12px", color: "#1c1917", fontSize: 13.5, outline: "none", fontFamily: "inherit" }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            {editId ? (
+              <>
+                <button onClick={saveEdit} style={{ flex: 1, padding: "9px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Güncelle</button>
+                <button onClick={() => { setEditId(null); setForm({ name: "", description: "", type: "depo" }); }}
+                  style={{ padding: "9px 16px", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 8, color: "#78716c", cursor: "pointer", fontSize: 13 }}>İptal</button>
+              </>
+            ) : (
+              <button onClick={add} style={{ flex: 1, padding: "9px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                + Lokasyon Ekle
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Locations list */}
+      {list.length === 0 ? (
+        <div style={{ background: "#fff", border: "2px dashed #e7e5e4", borderRadius: 14, padding: 32, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>📍</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", marginBottom: 4 }}>Henüz lokasyon yok</div>
+          <div style={{ fontSize: 13, color: "#a8a29e" }}>Yukarıdan ilk lokasyonunuzu ekleyin</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {list.map(item => {
+            const t = typeInfo(item.type);
+            return (
+              <div key={item.id} style={{ background: "#fff", border: `1px solid ${editId === item.id ? t.color : "#e7e5e4"}`, borderRadius: 11, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, transition: "border-color 0.15s" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: `${t.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                  {t.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>{item.name}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: t.color, background: `${t.color}12`, borderRadius: 99, padding: "1px 7px" }}>{t.label}</span>
+                    {item.description && <span style={{ fontSize: 11.5, color: "#a8a29e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.description}</span>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => startEdit(item)}
+                    style={{ width: 30, height: 30, background: "#f5f5f4", border: "none", borderRadius: 7, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#78716c" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button onClick={() => remove(item.id)}
+                    style={{ width: 30, height: 30, background: "#fef2f2", border: "none", borderRadius: 7, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListManager({ title, items, onSave, color }) {
   const [list, setList] = useState([...items]);
   const [newItem, setNewItem] = useState("");
@@ -3180,7 +3326,7 @@ function PurchasingPage({ suppliers, setSuppliers, purchaseOrders, setPurchaseOr
 }
 
 // ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
-function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories, setCategories, brands, setBrands }) {
+function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories, setCategories, brands, setBrands, locations, setLocations }) {
   const isAdmin = user.role === "admin";
   const [tab, setTab] = useState("password");
   const [pwForm, setPwForm] = useState({ current: "", newPw: "", confirm: "" });
@@ -3241,7 +3387,7 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-        {[["password", "Şifre Değiştir"], ...(isAdmin ? [["users", "Kullanıcı Yönetimi"], ["lists", "Kategori & Marka"]] : [])].map(([id, label]) => (
+        {[["password", "Şifre Değiştir"], ...(isAdmin ? [["users", "Kullanıcı Yönetimi"], ["lists", "Kategori & Marka"], ["locations", "Stok Lokasyonları"]] : [])].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${tab === id ? "#3b82f6" : "#e7e5e4"}`, background: tab === id ? "rgba(59,130,246,0.15)" : "#fafaf9", color: tab === id ? "#60a5fa" : "#a8a29e", cursor: "pointer", fontSize: 14, fontWeight: tab === id ? 600 : 400 }}>
             {label}
@@ -3332,6 +3478,21 @@ function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories
               await supabase.from("app_settings").upsert({ key: "brands", value: items }, { onConflict: "key" });
               notify("Markalar kaydedildi");
             }} color="#44403c" />
+        </div>
+      )}
+
+      {tab === "locations" && isAdmin && (
+        <div style={{ maxWidth: 520 }}>
+          <div style={{ marginBottom: 20 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 4px" }}>Stok Lokasyonları</h3>
+            <p style={{ fontSize: 13, color: "#a8a29e", margin: 0 }}>Depo, mağaza veya raf gibi stok lokasyonlarını yönetin. Bu lokasyonlar sayım ve hareket ekranlarında kullanılır.</p>
+          </div>
+          <LocationManager locations={locations} onSave={async (items) => {
+            setLocations(items);
+            localStorage.setItem("stokpro_locations", JSON.stringify(items));
+            await supabase.from("app_settings").upsert({ key: "locations", value: items }, { onConflict: "key" });
+            notify("Lokasyonlar kaydedildi");
+          }} />
         </div>
       )}
 
