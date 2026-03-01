@@ -55,7 +55,7 @@ const mapOrderItem = (r) => ({
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 // ─── CAMERA BARCODE SCANNER ───────────────────────────────────────────────────
-function CameraScanner({ onDetected, onClose, recentScans = [] }) {
+function CameraScanner({ onDetected, onClose, onError, recentScans = [] }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -72,6 +72,53 @@ function CameraScanner({ onDetected, onClose, recentScans = [] }) {
   const stopCamera = () => {
     if (animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+  };
+
+  // Web Audio API ile ses üretimi
+  const playSound = (type) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+
+      if (type === "success") {
+        // Kısa, yüksek bip - başarılı okuma
+        const osc = ctx.createOscillator();
+        osc.connect(gain);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+        osc.onended = () => ctx.close();
+      } else if (type === "error") {
+        // İki kısa alçak bip - hata
+        [0, 0.18].forEach(delay => {
+          const osc = ctx.createOscillator();
+          osc.connect(gain);
+          osc.type = "square";
+          osc.frequency.setValueAtTime(220, ctx.currentTime + delay);
+          gain.gain.setValueAtTime(0.25, ctx.currentTime + delay);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.12);
+          osc.start(ctx.currentTime + delay);
+          osc.stop(ctx.currentTime + delay + 0.12);
+        });
+        setTimeout(() => ctx.close(), 500);
+      } else if (type === "duplicate") {
+        // Tek kısa alçak bip - zaten okundu
+        const osc = ctx.createOscillator();
+        osc.connect(gain);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.1);
+        osc.onended = () => ctx.close();
+      }
+    } catch(e) { /* AudioContext desteklenmiyor */ }
   };
 
   // Load ZXing from CDN
@@ -131,7 +178,12 @@ function CameraScanner({ onDetected, onClose, recentScans = [] }) {
             lastTimeRef.current = now;
             setLastResult(code);
             if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
-            onDetected(code);
+            const found = onDetected(code);
+            if (found === false) {
+              playSound("error");
+            } else {
+              playSound("success");
+            }
           }
         }
         // Ignore NotFoundException — it just means no barcode in frame yet
@@ -1580,8 +1632,10 @@ function MovementsPage({ movements, products, setMovements, setProducts, user, n
       setShowCamera(false);
       setModal(true);
       notify(`✓ ${product.name} bulundu`);
+      return true;
     } else {
-      notify(`Barkod bulunamadı: ${code}`, "error");
+      notify(`❌ Barkod bulunamadı: ${code}`, "error");
+      return false;
     }
   };
 
@@ -1779,10 +1833,13 @@ function CountingPage({ products, setProducts, movements, setMovements, user, no
         }, ...ls.slice(0, 19)]);
         return { ...prev, [product.id]: newCount };
       });
+      return true;
     } else if (product) {
-      notify("Bu ürün sayım listesinde değil", "error");
+      notify("⚠️ Bu ürün sayım listesinde değil", "error");
+      return false;
     } else {
-      notify(`Barkod bulunamadı: ${code}`, "error");
+      notify(`❌ Barkod bulunamadı: ${code}`, "error");
+      return false;
     }
   };
 
