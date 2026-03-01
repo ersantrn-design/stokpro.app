@@ -1646,6 +1646,9 @@ function Dashboard({ products, movements, criticalProducts, setPage }) {
 function ProductsPage({ products, setProducts, movements, setMovements, user, notify, categories, brands, locations }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("");
+  const [filterLoc, setFilterLoc] = useState("");
+  const [bulkLocModal, setBulkLocModal] = useState(false);
+  const [bulkLocValue, setBulkLocValue] = useState("");
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "view" | "move" | "bulkMove"
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({});
@@ -1659,7 +1662,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   const filtered = products.filter(p => {
     const s = search.toLowerCase();
     return (!s || p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s) || p.barcode.includes(s)) &&
-      (!filterCat || p.category === filterCat);
+      (!filterCat || p.category === filterCat) &&
+      (!filterLoc || (filterLoc === "__none__" ? !p.location : p.location === filterLoc));
   });
 
   const openAdd = () => { setForm({ name: "", sku: "", barcode: "", category: "", brand: "", variant: "", minStock: 5, description: "", stock: 0, costPrice: "", salePrice: "", vatRate: 20 }); setModal("add"); };
@@ -1768,8 +1772,8 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
     const margin = profit !== null && saleExVat > 0 ? (profit / saleExVat * 100).toFixed(1) + "%" : "-";
     return {
       "Ürün Adı": p.name, SKU: p.sku, Barkod: p.barcode,
-      Kategori: p.category, Marka: p.brand, Varyant: p.variant,
-      "Mevcut Stok": p.stock, "Min Stok": p.minStock,
+      Kategori: p.category, Marka: p.brand, Lokasyon: p.location || "",
+      Varyant: p.variant, "Mevcut Stok": p.stock, "Min Stok": p.minStock,
       "Maliyet Fiyatı (₺)": p.costPrice || "",
       "Satış Fiyatı KDV Dahil (₺)": p.salePrice || "",
       "KDV Oranı (%)": p.vatRate || 20,
@@ -1784,10 +1788,10 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
   const downloadTemplate = async () => {
     try {
       const XLSX = await loadXLSX();
-      const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Varyant", "Mevcut Stok", "Min Stok", "Maliyet Fiyatı", "Satış Fiyatı (KDV Dahil)", "KDV Oranı %", "Açıklama"];
-      const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Siyah / 128GB", 50, 10, 100, 250, 20, "Açıklama"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Beyaz / 42", 30, 5, 200, 450, 20, ""]];
+      const headers = ["Ürün Adı *", "SKU *", "Barkod", "Kategori", "Marka", "Lokasyon", "Varyant", "Mevcut Stok", "Min Stok", "Maliyet Fiyatı", "Satış Fiyatı (KDV Dahil)", "KDV Oranı %", "Açıklama"];
+      const sample = [["Örnek Ürün 1", "URN-001", "1234567890123", "Elektronik", "Samsung", "Ana Depo", "Siyah / 128GB", 50, 10, 100, 250, 20, "Açıklama"], ["Örnek Ürün 2", "URN-002", "", "Giyim", "Nike", "Mağaza", "Beyaz / 42", 30, 5, 200, 450, 20, ""]];
       const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
-      ws["!cols"] = [35, 20, 20, 18, 15, 20, 14, 10, 18, 22, 12, 30].map(w => ({ wch: w }));
+      ws["!cols"] = [35, 20, 20, 18, 15, 18, 20, 14, 10, 18, 22, 12, 30].map(w => ({ wch: w }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Ürünler");
       XLSX.writeFile(wb, "urun-sablonu.xlsx");
@@ -1822,6 +1826,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         barcode: headers.findIndex(h => h.includes("Barkod") || h.toLowerCase() === "barcode"),
         category: headers.findIndex(h => h.includes("Kategori") || h.toLowerCase() === "category"),
         brand: headers.findIndex(h => h.includes("Marka") || h.toLowerCase() === "brand"),
+        location: headers.findIndex(h => h.includes("Lokasyon") || h.toLowerCase() === "location"),
         variant: headers.findIndex(h => h.includes("Varyant") || h.toLowerCase() === "variant"),
         stock: headers.findIndex(h => h.includes("Mevcut") || h.toLowerCase() === "stock"),
         minStock: headers.findIndex(h => h.includes("Min") || h.toLowerCase() === "min"),
@@ -1848,6 +1853,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           barcode: colMap.barcode >= 0 ? String(row[colMap.barcode] || "") : "",
           category: colMap.category >= 0 ? String(row[colMap.category] || "") : "",
           brand: colMap.brand >= 0 ? String(row[colMap.brand] || "") : "",
+          location: colMap.location >= 0 ? String(row[colMap.location] || "") : "",
           variant: colMap.variant >= 0 ? String(row[colMap.variant] || "") : "",
           stock: colMap.stock >= 0 ? (parseInt(row[colMap.stock]) || 0) : 0,
           min_stock: colMap.minStock >= 0 ? (parseInt(row[colMap.minStock]) || 0) : 0,
@@ -1888,6 +1894,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
         barcode: headers.findIndex(h => h.includes("Barkod") || h.toLowerCase() === "barcode"),
         category: headers.findIndex(h => h.includes("Kategori") || h.toLowerCase() === "category"),
         brand: headers.findIndex(h => h.includes("Marka") || h.toLowerCase() === "brand"),
+        location: headers.findIndex(h => h.includes("Lokasyon") || h.toLowerCase() === "location"),
         variant: headers.findIndex(h => h.includes("Varyant") || h.toLowerCase() === "variant"),
         stock: headers.findIndex(h => h.includes("Mevcut Stok") || h.toLowerCase() === "stock"),
         minStock: headers.findIndex(h => h.includes("Min Stok") || h.toLowerCase() === "min"),
@@ -1912,6 +1919,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           barcode: colMap.barcode >= 0 ? (cols[colMap.barcode]?.replace(/^"|"$/g, "") || "") : "",
           category: colMap.category >= 0 ? (cols[colMap.category]?.replace(/^"|"$/g, "") || "") : "",
           brand: colMap.brand >= 0 ? (cols[colMap.brand]?.replace(/^"|"$/g, "") || "") : "",
+          location: colMap.location >= 0 ? (cols[colMap.location]?.replace(/^"|"$/g, "") || "") : "",
           variant: colMap.variant >= 0 ? (cols[colMap.variant]?.replace(/^"|"$/g, "") || "") : "",
           stock: colMap.stock >= 0 ? (parseInt(cols[colMap.stock]) || 0) : 0,
           min_stock: colMap.minStock >= 0 ? (parseInt(cols[colMap.minStock]) || 0) : 0,
@@ -1960,6 +1968,10 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
                 <Icon name="movements" size={15} /> Toplu Stok
               </button>
+              <button onClick={() => { setBulkLocValue(""); setBulkLocModal(true); }} className="btn-hover"
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "rgba(3,105,161,0.1)", border: "1px solid rgba(3,105,161,0.2)", borderRadius: 9, color: "#0369a1", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                📍 Toplu Lokasyon
+              </button>
               <button onClick={() => setConfirmDelete(true)} className="btn-hover"
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", background: "#fef2f2", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10, color: "#dc2626", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
                 <Icon name="x" size={15} /> Seçilenleri Sil ({selectedIds.size})
@@ -1997,6 +2009,18 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
           <option value="">Tüm Kategoriler</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+        <select value={filterLoc} onChange={e => setFilterLoc(e.target.value)}
+          style={{ background: "rgba(0,0,0,0.02)", border: "1px solid #e7e5e4", borderRadius: 10, padding: "10px 14px", color: "#78716c", fontSize: 14, outline: "none" }}>
+          <option value="">Tüm Lokasyonlar</option>
+          <option value="__none__">📭 Lokasyonsuz</option>
+          {locations.map(l => <option key={l.name||l} value={l.name||l}>{l.name||l}</option>)}
+        </select>
+        {products.filter(p => !p.location).length > 0 && (
+          <button onClick={() => setBulkLocModal(true)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, color: "#c2410c", cursor: "pointer", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap" }}>
+            ⚠️ {products.filter(p => !p.location).length} ürün lokasyonsuz
+          </button>
+        )}
       </div>
 
       <div style={{ background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 14, overflow: "hidden" }}>
@@ -2006,7 +2030,7 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
               <th style={{ padding: "12px 12px", width: 40 }}>
                 <input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: "pointer", accentColor: "#3b82f6", width: 15, height: 15 }} />
               </th>
-              {["Ürün Adı", "SKU", "Kategori", "Marka", "Maliyet", "Satış", "Marj", "Stok", "Min", "Durum", ""].map(h => (
+              {["Ürün Adı", "SKU", "Kategori", "Marka", "Lokasyon", "Maliyet", "Satış", "Marj", "Stok", "Min", "Durum", ""].map(h => (
                 <th key={h} style={{ padding: "12px 16px", textAlign: "left", color: "#a8a29e", fontSize: 11.5, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
               ))}
             </tr>
@@ -2024,6 +2048,13 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
                 <td style={{ padding: "13px 16px", color: "#a8a29e", fontSize: 13, fontFamily: "'Space Mono', monospace" }}>{p.sku}</td>
                 <td style={{ padding: "13px 16px" }}><span style={{ background: "rgba(59,130,246,0.1)", color: "#60a5fa", borderRadius: 6, padding: "3px 9px", fontSize: 12 }}>{p.category}</span></td>
                 <td style={{ padding: "13px 16px", color: "#78716c", fontSize: 13 }}>{p.brand}</td>
+                <td style={{ padding: "13px 16px" }}>
+                  {p.location ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 99, padding: "2px 8px", fontSize: 11.5, fontWeight: 500, color: "#0369a1", whiteSpace: "nowrap" }}>
+                      📍 {p.location}
+                    </span>
+                  ) : <span style={{ color: "#e7e5e4" }}>—</span>}
+                </td>
                 <td style={{ padding: "13px 16px", color: "#a8a29e", fontSize: 13 }}>{p.costPrice > 0 ? `₺${Number(p.costPrice).toFixed(2)}` : "-"}</td>
                 <td style={{ padding: "13px 16px", color: "#1c1917", fontSize: 13 }}>{p.salePrice > 0 ? `₺${Number(p.salePrice).toFixed(2)}` : "-"}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13 }}>{(() => {
@@ -2107,6 +2138,52 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Bulk Location Modal */}
+      {bulkLocModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 460, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px", borderBottom: "1px solid #f0eeed" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#18181b" }}>Toplu Lokasyon Ata</div>
+              <div style={{ fontSize: 13, color: "#a8a29e", marginTop: 4 }}>
+                {selectedIds.size > 0
+                  ? `Seçili ${selectedIds.size} ürüne lokasyon atanacak`
+                  : `Lokasyonsuz ${products.filter(p => !p.location).length} ürüne lokasyon atanacak`}
+              </div>
+            </div>
+            <div style={{ padding: 24 }}>
+              <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 8 }}>Lokasyon Seç</label>
+              {locations.length > 0 ? (
+                <select value={bulkLocValue} onChange={e => setBulkLocValue(e.target.value)}
+                  style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "11px 14px", fontSize: 14, outline: "none", fontFamily: "inherit", color: bulkLocValue ? "#1c1917" : "#a8a29e", cursor: "pointer" }}>
+                  <option value="">Lokasyon seçin...</option>
+                  {locations.map(l => {
+                    const name = l.name || l;
+                    const icons = { depo: "🏭", magaza: "🏪", raf: "📦", diger: "📍" };
+                    return <option key={name} value={name}>{icons[l.type] || "📍"} {name}</option>;
+                  })}
+                </select>
+              ) : (
+                <input value={bulkLocValue} onChange={e => setBulkLocValue(e.target.value)}
+                  placeholder="Lokasyon adı girin..."
+                  style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "11px 14px", fontSize: 14, outline: "none", fontFamily: "inherit", color: "#1c1917" }} />
+              )}
+              <div style={{ marginTop: 14, background: "#fafaf9", borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#78716c", display: "flex", gap: 8 }}>
+                <span>💡</span>
+                <span>Bu işlem mevcut lokasyonu olan ürünlerin lokasyonunu <strong>değiştirmez</strong>, yalnızca lokasyonsuz ürünlere atar. Belirli ürünler için önce tablodan seçim yapabilirsiniz.</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "16px 24px", borderTop: "1px solid #f0eeed", background: "#fafaf9" }}>
+              <button onClick={() => { setBulkLocModal(false); setBulkLocValue(""); }}
+                style={{ flex: 1, padding: "10px", background: "#fff", border: "1px solid #e7e5e4", borderRadius: 9, color: "#44403c", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>İptal</button>
+              <button onClick={bulkAssignLocation}
+                style={{ flex: 2, padding: "10px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                Lokasyonu Ata
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add/Edit Modal */}
