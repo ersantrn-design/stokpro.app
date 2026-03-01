@@ -426,6 +426,7 @@ export default function App() {
   const [brands, setBrands] = useState(() => { try { return JSON.parse(localStorage.getItem("stokpro_brands")) || DEFAULT_BRANDS; } catch { return DEFAULT_BRANDS; } });
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const notify = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -478,8 +479,6 @@ export default function App() {
   );
 
   const criticalProducts = products.filter(p => p.stock <= p.minStock);
-
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const renderPage = () => {
     switch(page) {
