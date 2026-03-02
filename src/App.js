@@ -1659,6 +1659,20 @@ function ProductsPage({ products, setProducts, movements, setMovements, user, no
 
   const canEdit = user.role !== "viewer";
 
+  const bulkAssignLocation = async () => {
+    if (!bulkLocValue) { notify("Lokasyon seçin", "error"); return; }
+    const targets = selectedIds.size > 0 ? [...selectedIds] : products.filter(p => !p.location).map(p => p.id);
+    if (targets.length === 0) { notify("Atanacak ürün yok", "error"); return; }
+    for (let i = 0; i < targets.length; i += 50) {
+      const batch = targets.slice(i, i + 50);
+      await supabase.from("products").update({ location: bulkLocValue }).in("id", batch);
+    }
+    setProducts(prev => prev.map(p => targets.includes(p.id) ? { ...p, location: bulkLocValue } : p));
+    notify(`${targets.length} ürüne "${bulkLocValue}" lokasyonu atandı`);
+    setBulkLocModal(false);
+    setBulkLocValue("");
+  };
+
   const filtered = products.filter(p => {
     const s = search.toLowerCase();
     return (!s || p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s) || p.barcode.includes(s)) &&
