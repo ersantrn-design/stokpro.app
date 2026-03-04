@@ -372,6 +372,7 @@ const Icon = ({ name, size = 18, color }) => {
     inventory: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8h14M5 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>,
     scan: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>,
     transfer: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>,
+    ikas: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 3-3 3M13 14h4"/></svg>,
     purchasing: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
     supplier: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
     truck: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
@@ -1174,6 +1175,7 @@ export default function App() {
       case "products": return <ProductsPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} locations={locations} />;
       case "movements": return <MovementsPage movements={movements} products={products} setMovements={setMovements} setProducts={setProducts} user={user} notify={notify} />;
       case "transfers": return <TransfersPage products={products} setProducts={setProducts} setMovements={setMovements} user={user} notify={notify} locations={locations} />;
+      case "ikas": return <IkasPage products={products} setProducts={setProducts} movements={movements} user={user} notify={notify} />;
       case "counting": return <CountingPage products={products} setProducts={setProducts} movements={movements} setMovements={setMovements} user={user} notify={notify} categories={categories} brands={brands} />;
       case "reports": return <ReportsPage products={products} movements={movements} criticalProducts={criticalProducts} />;
       case "settings": return <SettingsPage user={user} setUser={setUser} appUsers={appUsers} setAppUsers={setAppUsers} notify={notify} categories={categories} setCategories={setCategories} brands={brands} setBrands={setBrands} locations={locations} setLocations={setLocations} />;
@@ -1191,6 +1193,7 @@ export default function App() {
     { id: "purchasing", label: "Satın Alma", icon: "purchasing" },
     { id: "reports", label: "Raporlar", icon: "reports" },
     { id: "settings", label: "Ayarlar", icon: "settings" },
+    { id: "ikas", label: "İkas", icon: "ikas" },
   ];
   const mobileNavItems = [
     { id: "dashboard", label: "Özet", icon: "dashboard" },
@@ -4012,6 +4015,388 @@ function PurchasingPage({ suppliers, setSuppliers, purchaseOrders, setPurchaseOr
 }
 
 // ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
+// ─── İKAS ENTEGRASYON SAYFASI ────────────────────────────────────────────────
+function IkasPage({ products, setProducts, movements, user, notify }) {
+  const EDGE_URL = `${window.SUPABASE_URL || ""}/functions/v1/ikas-proxy`;
+
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(null); // null | "products" | "orders" | "test"
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [tab, setTab] = useState("dashboard"); // "dashboard" | "orders" | "settings"
+  const [form, setForm] = useState({ store_name: "", client_id: "", client_secret: "" });
+  const [showSecret, setShowSecret] = useState(false);
+  const [syncLog, setSyncLog] = useState([]);
+
+  const isAdmin = user.role === "admin";
+  const isConnected = !!(settings?.store_name && settings?.client_id && settings?.client_secret);
+  const supabaseUrl = window.SUPABASE_URL || supabase.supabaseUrl || "";
+
+  useEffect(() => { loadSettings(); loadOrders(); }, []);
+
+  const addLog = (msg, type = "info") => {
+    setSyncLog(prev => [{ msg, type, time: new Date().toLocaleTimeString("tr-TR") }, ...prev.slice(0, 19)]);
+  };
+
+  const loadSettings = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("ikas_settings").select("*").single();
+    if (data) {
+      setSettings(data);
+      setForm({ store_name: data.store_name || "", client_id: data.client_id || "", client_secret: "" });
+    }
+    setLoading(false);
+  };
+
+  const loadOrders = async () => {
+    setOrdersLoading(true);
+    const { data } = await supabase.from("ikas_orders").select("*").order("created_at_ikas", { ascending: false }).limit(50);
+    if (data) setOrders(data);
+    setOrdersLoading(false);
+  };
+
+  const saveSettings = async () => {
+    if (!form.store_name || !form.client_id) { notify("Mağaza adı ve Client ID zorunludur", "error"); return; }
+    setSaving(true);
+    const updateData = {
+      store_name: form.store_name.replace(/\.myikas\.com.*/, "").trim(),
+      client_id: form.client_id.trim(),
+      ...(form.client_secret ? { client_secret: form.client_secret.trim(), access_token: "", token_expires_at: null } : {}),
+    };
+    const { error } = await supabase.from("ikas_settings").update(updateData).eq("id", settings?.id || "00000000-0000-0000-0000-000000000001");
+    if (error) { notify("Kaydedilemedi: " + error.message, "error"); }
+    else { notify("İkas ayarları kaydedildi"); await loadSettings(); }
+    setSaving(false);
+  };
+
+  const callProxy = async (action, extra = {}) => {
+    const anonKey = supabase.supabaseKey || "";
+    const res = await fetch(EDGE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${anonKey}` },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  };
+
+  const testConnection = async () => {
+    setSyncing("test");
+    try {
+      const data = await callProxy("testConnection");
+      addLog(`✓ Bağlantı başarılı — Client ID: ${data.clientId}`, "success");
+      notify("İkas bağlantısı başarılı!");
+      await loadSettings();
+    } catch (e) { addLog(`✗ Bağlantı hatası: ${e.message}`, "error"); notify("Bağlantı başarısız: " + e.message, "error"); }
+    setSyncing(null);
+  };
+
+  const syncProducts = async () => {
+    setSyncing("products");
+    addLog("Ürün senkronizasyonu başladı...", "info");
+    try {
+      const data = await callProxy("syncProducts");
+      addLog(`✓ ${data.created} yeni ürün eklendi, ${data.synced} güncellendi (toplam ${data.total})`, "success");
+      notify(`Senkronizasyon tamamlandı: ${data.created} yeni, ${data.synced} güncellendi`);
+      // Ürünleri yenile
+      const { data: fresh } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+      if (fresh) setProducts(fresh.map(p => ({
+        id: p.id, name: p.name, sku: p.sku, barcode: p.barcode || "",
+        category: p.category || "", brand: p.brand || "", location: p.location || "",
+        variant: p.variant || "", stock: p.stock, minStock: p.min_stock,
+        costPrice: p.cost_price, salePrice: p.sale_price, vatRate: p.vat_rate || 20,
+        description: p.description || "", ikas_variant_id: p.ikas_variant_id || "", ikas_product_id: p.ikas_product_id || "",
+      })));
+      await loadSettings();
+    } catch (e) { addLog(`✗ Ürün sync hatası: ${e.message}`, "error"); notify("Sync hatası: " + e.message, "error"); }
+    setSyncing(null);
+  };
+
+  const syncOrders = async () => {
+    setSyncing("orders");
+    addLog("Sipariş senkronizasyonu başladı...", "info");
+    try {
+      const data = await callProxy("syncOrders");
+      addLog(`✓ ${data.count} sipariş senkronize edildi`, "success");
+      notify(`${data.count} sipariş güncellendi`);
+      await loadOrders();
+    } catch (e) { addLog(`✗ Sipariş sync hatası: ${e.message}`, "error"); notify("Hata: " + e.message, "error"); }
+    setSyncing(null);
+  };
+
+  const togglePushStock = async () => {
+    const newVal = !settings?.push_stock_enabled;
+    await supabase.from("ikas_settings").update({ push_stock_enabled: newVal }).eq("id", settings.id);
+    setSettings(s => ({ ...s, push_stock_enabled: newVal }));
+    notify(`Anlık stok push ${newVal ? "aktif" : "pasif"}`);
+  };
+
+  const fmt = (d) => d ? new Date(d).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+  const statusColor = (s) => ({ "PAID": "#16a34a", "PENDING": "#ca8a04", "CANCELLED": "#dc2626", "REFUNDED": "#7c3aed" }[s] || "#78716c");
+  const statusLabel = (s) => ({ "PAID": "Ödendi", "PENDING": "Bekliyor", "CANCELLED": "İptal", "REFUNDED": "İade" }[s] || s);
+
+  const tabStyle = (t) => ({
+    padding: "8px 16px", background: tab === t ? "#18181b" : "transparent",
+    border: "none", borderRadius: 8, color: tab === t ? "#fff" : "#78716c",
+    cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s",
+  });
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Yükleniyor...</div>;
+
+  return (
+    <div>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 3-3 3M13 14h4"/></svg>
+          </div>
+          <div>
+            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>İkas Entegrasyon</h1>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+              <div style={{ width: 7, height: 7, borderRadius: 99, background: isConnected ? "#22c55e" : "#e7e5e4" }} />
+              <span style={{ fontSize: 12.5, color: isConnected ? "#16a34a" : "#a8a29e" }}>
+                {isConnected ? `${settings.store_name}.myikas.com bağlı` : "Bağlantı kurulmadı"}
+              </span>
+            </div>
+          </div>
+        </div>
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, background: "#f5f5f4", borderRadius: 10, padding: 4 }}>
+          {[["dashboard", "📊 Özet"], ["orders", "📦 Siparişler"], ["settings", "⚙️ Ayarlar"]].map(([t, label]) => (
+            <button key={t} onClick={() => setTab(t)} style={tabStyle(t)}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── DASHBOARD TAB ── */}
+      {tab === "dashboard" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Not connected warning */}
+          {!isConnected && (
+            <div style={{ background: "#fefce8", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#92400e" }}>İkas bağlantısı kurulmamış</div>
+                <div style={{ fontSize: 13, color: "#a16207", marginTop: 2 }}>Ayarlar sekmesinden Client ID ve Secret girerek bağlanın.</div>
+              </div>
+              <button onClick={() => setTab("settings")} style={{ marginLeft: "auto", padding: "7px 14px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                Ayarlara Git →
+              </button>
+            </div>
+          )}
+
+          {/* Stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
+            {[
+              { label: "Bağlı Ürün", value: products.filter(p => p.ikas_variant_id).length, icon: "📦", sub: `${products.length} toplam` },
+              { label: "Sipariş", value: orders.length, icon: "🛒", sub: "son 50" },
+              { label: "Son Sync", value: settings?.last_sync ? fmt(settings.last_sync) : "—", icon: "🔄", sub: settings?.last_sync_result || "" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#18181b" }}>{s.value}</div>
+                <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 2 }}>{s.label}</div>
+                {s.sub && <div style={{ fontSize: 11, color: "#c8c4be", marginTop: 2 }}>{s.sub}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* Sync buttons */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 24 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#18181b", margin: "0 0 16px" }}>Senkronizasyon</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {[
+                { action: "test", label: "Bağlantı Test Et", icon: "🔌", fn: testConnection, desc: "API erişimini doğrula" },
+                { action: "products", label: "Ürünleri Çek", icon: "📥", fn: syncProducts, desc: "İkas'tan tüm ürünleri senkronize et" },
+                { action: "orders", label: "Siparişleri Çek", icon: "📋", fn: syncOrders, desc: "Son 50 siparişi güncelle" },
+              ].map(btn => (
+                <button key={btn.action} onClick={btn.fn} disabled={!isConnected || syncing !== null}
+                  style={{ padding: "16px", background: syncing === btn.action ? "#f5f5f4" : "#fafaf9", border: `1px solid ${syncing === btn.action ? "#6366f1" : "#e7e5e4"}`, borderRadius: 12, cursor: isConnected && syncing === null ? "pointer" : "not-allowed", opacity: (!isConnected || (syncing !== null && syncing !== btn.action)) ? 0.5 : 1, textAlign: "left", transition: "all 0.15s" }}>
+                  <div style={{ fontSize: 22, marginBottom: 8 }}>{syncing === btn.action ? "⏳" : btn.icon}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "#18181b" }}>{syncing === btn.action ? "İşleniyor..." : btn.label}</div>
+                  <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 3 }}>{btn.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Push stock toggle */}
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⚡ Anlık Stok Push</span>
+                {settings?.push_stock_enabled && <span style={{ fontSize: 11, background: "#dcfce7", color: "#16a34a", borderRadius: 99, padding: "2px 8px", fontWeight: 500 }}>Aktif</span>}
+              </div>
+              <div style={{ fontSize: 12.5, color: "#a8a29e", marginTop: 3 }}>Stok hareketi olduğunda İkas stoku otomatik güncellenir</div>
+            </div>
+            <button onClick={togglePushStock} disabled={!isConnected}
+              style={{ width: 46, height: 26, borderRadius: 99, border: "none", background: settings?.push_stock_enabled ? "#22c55e" : "#e7e5e4", cursor: isConnected ? "pointer" : "not-allowed", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+              <div style={{ width: 20, height: 20, borderRadius: 99, background: "#fff", position: "absolute", top: 3, left: settings?.push_stock_enabled ? 23 : 3, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+            </button>
+          </div>
+
+          {/* Sync log */}
+          {syncLog.length > 0 && (
+            <div style={{ background: "#18181b", borderRadius: 12, padding: 16, fontFamily: "monospace" }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10, fontFamily: "inherit" }}>SYNC LOG</div>
+              {syncLog.map((l, i) => (
+                <div key={i} style={{ fontSize: 12, color: l.type === "error" ? "#f87171" : l.type === "success" ? "#4ade80" : "#9ca3af", marginBottom: 4 }}>
+                  <span style={{ color: "#4b5563" }}>[{l.time}]</span> {l.msg}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ORDERS TAB ── */}
+      {tab === "orders" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, color: "#78716c" }}>{orders.length} sipariş</div>
+            <button onClick={syncOrders} disabled={syncing === "orders" || !isConnected}
+              style={{ padding: "8px 16px", background: "#18181b", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500, opacity: (!isConnected || syncing === "orders") ? 0.5 : 1 }}>
+              {syncing === "orders" ? "⏳ Yükleniyor..." : "🔄 Güncelle"}
+            </button>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 12, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#fafaf9", borderBottom: "1px solid #f0eeed" }}>
+                  {["Sipariş No", "Müşteri", "Ürünler", "Toplam", "Tarih", "Durum"].map(h => (
+                    <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "#a8a29e", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ordersLoading ? (
+                  <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Yükleniyor...</td></tr>
+                ) : orders.length === 0 ? (
+                  <tr><td colSpan={6} style={{ padding: 48, textAlign: "center" }}>
+                    <div style={{ fontSize: 28, marginBottom: 10 }}>🛒</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#18181b" }}>Henüz sipariş yok</div>
+                    <div style={{ fontSize: 13, color: "#a8a29e", marginTop: 4 }}>Güncelle butonuna basarak İkas'tan siparişleri çekin</div>
+                  </td></tr>
+                ) : orders.map(o => (
+                  <tr key={o.id} className="table-row" style={{ borderBottom: "1px solid #f5f5f4" }}>
+                    <td style={{ padding: "12px 16px", fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: "#18181b" }}>#{o.order_number}</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>{o.customer_name || "—"}</div>
+                      <div style={{ fontSize: 11.5, color: "#a8a29e" }}>{o.customer_email}</div>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c" }}>
+                      {Array.isArray(o.items) ? o.items.map((item, i) => (
+                        <div key={i}>{item.variant?.product?.name || "Ürün"} × {item.quantity}</div>
+                      )) : "—"}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontWeight: 700, color: "#18181b" }}>
+                      ₺{Number(o.total_price || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: 12.5, color: "#78716c", whiteSpace: "nowrap" }}>{fmt(o.created_at_ikas)}</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ background: `${statusColor(o.status)}20`, color: statusColor(o.status), borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {statusLabel(o.status)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── SETTINGS TAB ── */}
+      {tab === "settings" && isAdmin && (
+        <div style={{ maxWidth: 600 }}>
+          <div style={{ background: "#fff", border: "1px solid #e7e5e4", borderRadius: 14, padding: 28, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#18181b", margin: "0 0 6px" }}>İkas API Bilgileri</h3>
+            <p style={{ fontSize: 13, color: "#a8a29e", margin: "0 0 20px" }}>
+              İkas paneli → Uygulamalar → Uygulamalarım → Private App oluştur
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Mağaza Adı <span style={{ color: "#ef4444" }}>*</span></label>
+                <div style={{ display: "flex", alignItems: "center", gap: 0, border: "1px solid #e7e5e4", borderRadius: 9, overflow: "hidden" }}>
+                  <input value={form.store_name} onChange={e => setForm(f => ({ ...f, store_name: e.target.value }))}
+                    placeholder="magaza-adiniz"
+                    style={{ flex: 1, background: "#fafaf9", border: "none", padding: "10px 14px", fontSize: 14, outline: "none", fontFamily: "inherit", color: "#1c1917" }} />
+                  <span style={{ padding: "10px 14px", background: "#f0eeed", fontSize: 13, color: "#78716c", borderLeft: "1px solid #e7e5e4", whiteSpace: "nowrap" }}>.myikas.com</span>
+                </div>
+              </div>
+              <div>
+                <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>Client ID <span style={{ color: "#ef4444" }}>*</span></label>
+                <input value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 14px", fontSize: 13.5, outline: "none", fontFamily: "monospace", color: "#1c1917" }} />
+              </div>
+              <div>
+                <label style={{ color: "#78716c", fontSize: 12, fontWeight: 500, display: "block", marginBottom: 6 }}>
+                  Client Secret {settings?.client_secret ? <span style={{ color: "#16a34a", fontWeight: 400 }}>(kayıtlı ✓)</span> : <span style={{ color: "#ef4444" }}>*</span>}
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input value={form.client_secret} onChange={e => setForm(f => ({ ...f, client_secret: e.target.value }))}
+                    type={showSecret ? "text" : "password"}
+                    placeholder={settings?.client_secret ? "Değiştirmek için yeni secret girin" : "Client Secret"}
+                    style={{ width: "100%", background: "#fafaf9", border: "1px solid #e7e5e4", borderRadius: 9, padding: "10px 40px 10px 14px", fontSize: 13.5, outline: "none", fontFamily: "monospace", color: "#1c1917" }} />
+                  <button onClick={() => setShowSecret(s => !s)}
+                    style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#a8a29e", fontSize: 16 }}>
+                    {showSecret ? "🙈" : "👁"}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={saveSettings} disabled={saving}
+                style={{ flex: 1, padding: "11px", background: "#18181b", border: "none", borderRadius: 9, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
+                {saving ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+              {isConnected && (
+                <button onClick={testConnection} disabled={syncing !== null}
+                  style={{ padding: "11px 20px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 9, color: "#16a34a", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+                  {syncing === "test" ? "⏳" : "🔌 Test Et"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Kurulum rehberi */}
+          <div style={{ background: "#f8faff", border: "1px solid #dbeafe", borderRadius: 14, padding: 24 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1e40af", margin: "0 0 14px", display: "flex", alignItems: "center", gap: 7 }}>
+              📖 Kurulum Rehberi
+            </h3>
+            {[
+              ["1", "Private App Oluştur", "İkas Admin → Uygulamalar → Uygulamalarım → 'Daha Fazla' → Private App Oluştur"],
+              ["2", "Scope Seç", "products:read, products:write, orders:read izinlerini seçin"],
+              ["3", "Credentials Kopyala", "Client ID ve Secret'ı buraya yapıştırın"],
+              ["4", "Edge Function Deploy Et", "Aşağıdaki terminal komutlarını çalıştırın"],
+              ["5", "Webhook Kur", "Supabase Dashboard → Database → Webhooks"],
+            ].map(([num, title, desc]) => (
+              <div key={num} style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 24, height: 24, borderRadius: 99, background: "#3b82f6", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{num}</div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af" }}>{title}</div>
+                  <div style={{ fontSize: 12, color: "#3b82f6", marginTop: 2 }}>{desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "settings" && !isAdmin && (
+        <div style={{ padding: 40, textAlign: "center", color: "#a8a29e" }}>Bu sayfayı görüntülemek için admin yetkisi gereklidir.</div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPage({ user, setUser, appUsers, setAppUsers, notify, categories, setCategories, brands, setBrands, locations, setLocations }) {
   const isAdmin = user.role === "admin";
   const [tab, setTab] = useState("password");
