@@ -4017,7 +4017,7 @@ function PurchasingPage({ suppliers, setSuppliers, purchaseOrders, setPurchaseOr
 // ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
 // ─── İKAS ENTEGRASYON SAYFASI ────────────────────────────────────────────────
 function IkasPage({ products, setProducts, movements, user, notify }) {
-  const EDGE_URL = `${window.SUPABASE_URL || ""}/functions/v1/ikas-proxy`;
+  const EDGE_URL = `${SUPABASE_URL}/functions/v1/ikas-proxy`;
 
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -4072,7 +4072,7 @@ function IkasPage({ products, setProducts, movements, user, notify }) {
   };
 
   const callProxy = async (action, extra = {}) => {
-    const anonKey = supabase.supabaseKey || "";
+    const anonKey = SUPABASE_ANON_KEY || supabase.supabaseKey || "";
     const res = await fetch(EDGE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${anonKey}` },
