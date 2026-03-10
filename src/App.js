@@ -4928,6 +4928,8 @@ function SevkiyatPage({ products, user, notify }) {
     maxUrun: 6, fontSize: 8, fontSizeBaslik: 11, satirAraligi: 2,
   });
 
+  const [durumMenuId, setDurumMenuId] = React.useState(null);
+
   const fmt = d => d ? new Date(d).toLocaleDateString("tr-TR") : "-";
   const genNo = () => "SVK-" + Date.now().toString().slice(-6);
   const toplamUrun = () => koliler.reduce((s,k) => s + k.urunler.reduce((ss,u) => ss+u.qty, 0), 0);
@@ -4944,7 +4946,7 @@ function SevkiyatPage({ products, user, notify }) {
 
   function acYeni() {
     setEditId(null);
-    setForm({ no: genNo(), musteri: "", adres: "", tel: "", tarih: new Date().toISOString().slice(0,10), aciklama: "" });
+    setForm({ no: genNo(), musteri: "", adres: "", tel: "", tarih: new Date().toISOString().slice(0,10), aciklama: "", durum: "hazırlanıyor" });
     setKoliler([{ id: 1, no: "K-001", urunler: [] }]);
     setActiveKoli(1);
     setBarkod(""); setArama("");
@@ -4953,7 +4955,7 @@ function SevkiyatPage({ products, user, notify }) {
 
   function acDuzenle(s) {
     setEditId(s.id);
-    setForm({ no: s.no || "", musteri: s.musteri || "", adres: s.adres || "", tel: s.tel || "", tarih: (s.tarih || new Date().toISOString()).slice(0,10), aciklama: s.aciklama || "" });
+    setForm({ no: s.no || "", musteri: s.musteri || "", adres: s.adres || "", tel: s.tel || "", tarih: (s.tarih || new Date().toISOString()).slice(0,10), aciklama: s.aciklama || "", durum: s.durum || "hazırlanıyor" });
     const k = s.koliler && s.koliler.length > 0 ? s.koliler : [{ id: 1, no: "K-001", urunler: [] }];
     setKoliler(k);
     setActiveKoli(k[0].id);
@@ -4969,11 +4971,19 @@ function SevkiyatPage({ products, user, notify }) {
     notify("Sevkiyat silindi");
   }
 
+  async function durumGuncelle(id, yeniDurum) {
+    const { error } = await supabase.from("sevkiyatlar").update({ durum: yeniDurum }).eq("id", id);
+    if (error) { notify("Durum güncellenemedi: " + error.message); return; }
+    setSevkiyatlar(prev => prev.map(s => s.id === id ? { ...s, durum: yeniDurum } : s));
+    setDurumMenuId(null);
+    notify(`Durum "${yeniDurum}" olarak güncellendi ✓`);
+  }
+
   async function kaydet() {
     if (!form.musteri.trim()) return notify("Müşteri adı zorunlu");
     if (toplamUrun() === 0) return notify("En az 1 ürün ekleyin");
     setSubmitting(true);
-    const row = { ...form, durum: "hazırlanıyor", koliler, toplam_koli: koliler.length, toplam_urun: toplamUrun(), created_by: user.username };
+    const row = { ...form, durum: form.durum || "hazırlanıyor", koliler, toplam_koli: koliler.length, toplam_urun: toplamUrun(), created_by: user.username };
     if (editId) {
       const { data, error } = await supabase.from("sevkiyatlar").update(row).eq("id", editId).select().single();
       if (error) { notify("Güncelleme hatası: " + error.message); setSubmitting(false); return; }
@@ -5662,6 +5672,17 @@ function SevkiyatPage({ products, user, notify }) {
                 <label style={{display:"block",fontSize:11,fontWeight:600,color:"#78716c",marginBottom:3}}>Açıklama</label>
                 <textarea value={form.aciklama} onChange={e=>setForm(p=>({...p,aciklama:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 10px",border:"1px solid #e7e5e4",borderRadius:8,fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
               </div>
+              <div>
+                <label style={{display:"block",fontSize:11,fontWeight:600,color:"#78716c",marginBottom:6}}>Durum</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[["hazırlanıyor","⏳","#ca8a04"],["beklemede","🕐","#7c3aed"],["tamamlandı","✅","#16a34a"],["iptal","❌","#dc2626"]].map(([d,ic,renk])=>(
+                    <button key={d} onClick={()=>setForm(p=>({...p,durum:d}))}
+                      style={{flex:1,padding:"7px 6px",borderRadius:8,border:`1.5px solid ${form.durum===d?renk:"#e7e5e4"}`,background:form.durum===d?renk+"18":"transparent",color:form.durum===d?renk:"#78716c",cursor:"pointer",fontSize:12,fontWeight:form.durum===d?700:400,minWidth:80}}>
+                      {ic} {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div style={{background:"#f0fdf4",borderRadius:12,padding:14,border:"1px solid #bbf7d0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {[["Koli",koliler.length],["Ürün",toplamUrun()+" adet"]].map(([l,v])=>(
@@ -5730,7 +5751,7 @@ function SevkiyatPage({ products, user, notify }) {
 
   // ══════════ LİSTE ══════════
   return (
-    <div style={{padding:24}}>
+    <div style={{padding:24}} onClick={()=>setDurumMenuId(null)}>
       {deleteTarget && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setDeleteTarget(null)}>
           <div style={{background:"#fff",borderRadius:16,padding:28,maxWidth:380,width:"90%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
@@ -5798,9 +5819,23 @@ function SevkiyatPage({ products, user, notify }) {
                   <td style={{padding:"12px 16px",fontSize:13,textAlign:"center",fontWeight:600}}>{s.toplam_koli||0}</td>
                   <td style={{padding:"12px 16px",fontSize:13,textAlign:"center"}}>{s.toplam_urun||0}</td>
                   <td style={{padding:"12px 16px"}}>
-                    <span style={{padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:(durumRenk[s.durum]||"#78716c")+"22",color:durumRenk[s.durum]||"#78716c"}}>
-                      {s.durum||"?"}
-                    </span>
+                    <div style={{position:"relative"}}>
+                      <span onClick={()=>setDurumMenuId(durumMenuId===s.id?null:s.id)} style={{padding:"4px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:(durumRenk[s.durum]||"#78716c")+"22",color:durumRenk[s.durum]||"#78716c",cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:5}}>
+                        {s.durum||"?"} <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                      </span>
+                      {durumMenuId===s.id && (
+                        <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"110%",left:0,background:"#fff",border:"1px solid #e7e5e4",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:999,minWidth:160,overflow:"hidden"}}>
+                          {[["hazırlanıyor","⏳","#ca8a04"],["beklemede","🕐","#7c3aed"],["tamamlandı","✅","#16a34a"],["iptal","❌","#dc2626"]].map(([d,ic,renk])=>(
+                            <div key={d} onClick={()=>durumGuncelle(s.id,d)}
+                              style={{padding:"9px 14px",cursor:"pointer",fontSize:13,fontWeight:s.durum===d?700:400,color:s.durum===d?renk:"#374151",background:s.durum===d?renk+"11":"transparent",display:"flex",alignItems:"center",gap:8}}
+                              onMouseEnter={e=>{ if(s.durum!==d) e.currentTarget.style.background="#f5f5f4"; }}
+                              onMouseLeave={e=>{ e.currentTarget.style.background=s.durum===d?renk+"11":"transparent"; }}>
+                              {ic} {d} {s.durum===d&&<svg style={{marginLeft:"auto"}} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td style={{padding:"10px 16px"}}>
                     <div style={{display:"flex",gap:6}}>
