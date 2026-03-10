@@ -4019,6 +4019,363 @@ function PurchasingPage({ suppliers, setSuppliers, purchaseOrders, setPurchaseOr
 }
 
 // ─── SEVKİYAT SAYFASI ────────────────────────────────────────────────────────
+function ShipmentLabelDesigner({ onBack, saveLabelTemplate, labelTemplate, notify }) {
+  const DEFAULT_LABEL_TEMPLATE = { width_mm: 100, height_mm: 70 };
+
+  const MM = 3.7795;
+  const prevShip = { shipment_no:"SEV-001234", customer_name:"Örnek Müşteri A.Ş.", customer_address:"Atatürk Cad. No:5, İstanbul", date: new Date().toLocaleDateString("tr-TR") };
+  const prevBox = { id:1, items:[{product_name:"Ürün Adı Örnek 1",sku:"SKU001",qty:12},{product_name:"Ürün Adı Örnek 2",sku:"SKU002",qty:5},{product_name:"Uzun Ürün Adı Örnek 3",sku:"SKU003",qty:8}] };
+
+  const savedDesign = (() => { try { return JSON.parse(localStorage.getItem("stokpro_label_design") || "null"); } catch { return null; } })();
+
+  const [canvasW, setCanvasW] = useState(savedDesign?.canvasW || labelTemplate?.width_mm || 100);
+  const [canvasH, setCanvasH] = useState(savedDesign?.canvasH || labelTemplate?.height_mm || 70);
+  const [zoom, setZoom] = useState(2.5);
+  const [elements, setElements] = useState(savedDesign?.elements || [
+    { id:"e1", type:"text", label:"Firma Adı", x:2, y:2, w:60, h:7, value:"StokPro", field:"firmaAdi", fontSize:11, fontWeight:"bold", fontStyle:"normal", textDecor:"none", align:"left", color:"#000000", bg:"", border:false, zIndex:10 },
+    { id:"e2", type:"text", label:"Sevkiyat No", x:62, y:2, w:36, h:5, field:"shipmentNo", value:"{shipmentNo}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"right", color:"#333333", bg:"", border:false, zIndex:9 },
+    { id:"e3", type:"text", label:"Tarih", x:62, y:8, w:36, h:5, field:"date", value:"{date}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"right", color:"#666666", bg:"", border:false, zIndex:9 },
+    { id:"e4", type:"text", label:"Müşteri", x:2, y:12, w:96, h:6, field:"customer", value:"{customer}", fontSize:9, fontWeight:"bold", fontStyle:"normal", textDecor:"none", align:"left", color:"#000000", bg:"", border:false, zIndex:8 },
+    { id:"e5", type:"text", label:"Adres", x:2, y:19, w:96, h:5, field:"address", value:"{address}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"left", color:"#555555", bg:"", border:false, zIndex:7 },
+    { id:"e6", type:"kolibox", label:"Koli No", x:2, y:26, w:96, h:8, fontSize:11, fontWeight:"bold", align:"center", color:"#ffffff", bg:"#000000", zIndex:6 },
+    { id:"e7", type:"urunlist", label:"Ürün Listesi", x:2, y:36, w:96, h:22, fontSize:7, satirAraligi:2, maxUrun:6, color:"#000000", bg:"", border:true, zIndex:5 },
+    { id:"e8", type:"barcode", label:"Barkod", x:20, y:60, w:60, h:8, zIndex:4 },
+  ]);
+  const [selId, setSelId] = useState("e1");
+  const [dragging, setDragging] = useState(null);
+  const [resizing, setResizing] = useState(null);
+  const [dragOffset, setDragOffset] = useState({x:0,y:0});
+  const [activeTab, setActiveTab] = useState("elements");
+  const canvasRef = useRef(null);
+  const sel = elements.find(e=>e.id===selId);
+
+  const varMap = { "{shipmentNo}":prevShip.shipment_no, "{customer}":prevShip.customer_name, "{address}":prevShip.customer_address, "{date}":prevShip.date, "{boxNo}":"1", "{totalBoxes}":"3" };
+  function resolveVal(el) {
+    if (el.field==="firmaAdi") return el.value || "FİRMA ADI";
+    return varMap[el.value] || el.value || "";
+  }
+
+  function onMouseDown(e, elId) {
+    e.stopPropagation();
+    setSelId(elId);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const el = elements.find(x=>x.id===elId);
+    setDragging(elId);
+    setDragOffset({ x: e.clientX - rect.left - el.x*MM*zoom, y: e.clientY - rect.top - el.y*MM*zoom });
+  }
+  function onMouseMove(e) {
+    if (dragging) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const nx = (e.clientX - rect.left - dragOffset.x)/(MM*zoom);
+      const ny = (e.clientY - rect.top - dragOffset.y)/(MM*zoom);
+      setElements(prev=>prev.map(el=>el.id!==dragging?el:{...el,x:Math.max(0,Math.min(canvasW-el.w,Math.round(nx*10)/10)),y:Math.max(0,Math.min(canvasH-el.h,Math.round(ny*10)/10))}));
+    }
+    if (resizing) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const nw = (e.clientX-rect.left)/(MM*zoom)-resizing.startX;
+      const nh = (e.clientY-rect.top)/(MM*zoom)-resizing.startY;
+      setElements(prev=>prev.map(el=>el.id!==resizing.id?el:{...el,w:Math.max(5,Math.round(nw*10)/10),h:Math.max(3,Math.round(nh*10)/10)}));
+    }
+  }
+  function onMouseUp() { setDragging(null); setResizing(null); }
+  function onResizeStart(e, elId) {
+    e.stopPropagation();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const el = elements.find(x=>x.id===elId);
+    setResizing({ id:elId, startX:el.x, startY:el.y });
+    setSelId(elId);
+  }
+  function updateEl(id, patch) { setElements(prev=>prev.map(el=>el.id!==id?el:{...el,...patch})); }
+  function deleteEl(id) { setElements(prev=>prev.filter(e=>e.id!==id)); setSelId(null); }
+  function moveZ(id, dir) { setElements(prev=>prev.map(el=>el.id!==id?el:{...el,zIndex:el.zIndex+dir})); }
+
+  function addElement(type) {
+    const id = "e"+Date.now();
+    const base = { id, x:5, y:5, w:40, h:8, zIndex:elements.length+1 };
+    const types = {
+      text:    {...base,type:"text",label:"Metin",value:"Metin",field:"",fontSize:9,fontWeight:"normal",fontStyle:"normal",textDecor:"none",align:"left",color:"#000000",bg:"",border:false},
+      barcode: {...base,type:"barcode",label:"Barkod",w:60,h:10},
+      line:    {...base,type:"line",label:"Çizgi",w:90,h:1,color:"#000000"},
+      rect:    {...base,type:"rect",label:"Kutu",w:30,h:15,color:"#000000",bg:"",borderWidth:1},
+      logo:    {...base,type:"logo",label:"Logo",w:20,h:12,logoData:""},
+      urunlist:{...base,type:"urunlist",label:"Ürün Listesi",w:90,h:25,fontSize:7,satirAraligi:2,maxUrun:6,color:"#000000",bg:"",border:true},
+      kolibox: {...base,type:"kolibox",label:"Koli No",w:90,h:8,fontSize:11,fontWeight:"bold",align:"center",color:"#ffffff",bg:"#000000"},
+    };
+    setElements(prev=>[...prev, types[type]||types.text]);
+    setSelId(id);
+  }
+
+  function renderEl(el) {
+    const px=el.x*MM*zoom, py=el.y*MM*zoom, pw=el.w*MM*zoom, ph=el.h*MM*zoom;
+    const isSel=selId===el.id;
+    const base={position:"absolute",left:px,top:py,width:pw,height:ph,cursor:"move",userSelect:"none",zIndex:el.zIndex||1,boxSizing:"border-box",outline:isSel?"2px solid #3b82f6":"1px dashed rgba(0,0,0,0.15)",outlineOffset:isSel?1:0};
+    const resizeHandle = isSel && <div onMouseDown={e=>onResizeStart(e,el.id)} style={{position:"absolute",right:-4,bottom:-4,width:8,height:8,background:"#3b82f6",borderRadius:2,cursor:"se-resize",zIndex:999}}/>;
+
+    if (el.type==="text") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",background:el.bg||"transparent",justifyContent:el.align==="center"?"center":el.align==="right"?"flex-end":"flex-start",padding:"0 2px",overflow:"hidden"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      <span style={{fontSize:el.fontSize*zoom*0.6,fontWeight:el.fontWeight,fontStyle:el.fontStyle,textDecoration:el.textDecor,color:el.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{resolveVal(el)}</span>
+      {el.border&&<div style={{position:"absolute",inset:0,border:"1px solid "+el.color,pointerEvents:"none"}}/>}
+      {resizeHandle}</div>;
+
+    if (el.type==="kolibox") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",justifyContent:el.align==="center"?"center":"flex-start",background:el.bg||"#000",padding:"0 2px",overflow:"hidden"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      <span style={{fontSize:el.fontSize*zoom*0.6,fontWeight:el.fontWeight||"bold",color:el.color||"#fff",whiteSpace:"nowrap"}}>KOLİ 1 / 3</span>
+      {resizeHandle}</div>;
+
+    if (el.type==="urunlist") return <div key={el.id} style={{...base,background:el.bg||"transparent",border:el.border?"1px solid #ccc":"none",overflow:"hidden",padding:"1px"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:el.fontSize*zoom*0.6}}>
+        <thead><tr style={{borderBottom:"1px solid #999"}}><th style={{textAlign:"left",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>Ürün</th><th style={{width:"18%",textAlign:"center",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>SKU</th><th style={{width:"12%",textAlign:"right",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>Adet</th></tr></thead>
+        <tbody>{prevBox.items.slice(0,el.maxUrun||6).map((u,i)=><tr key={i} style={{borderBottom:"1px solid #eee"}}><td style={{padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:0}}>{u.product_name}</td><td style={{textAlign:"center",color:"#666",padding:"1px 2px"}}>{u.sku}</td><td style={{textAlign:"right",fontWeight:"bold",color:el.color,padding:"1px 2px"}}>{u.qty}</td></tr>)}</tbody>
+      </table>
+      {resizeHandle}</div>;
+
+    if (el.type==="barcode") return <div key={el.id} style={{...base,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"white"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      <svg width={pw-4} height={ph*0.72} style={{display:"block"}}>{Array.from({length:Math.floor((pw-4)/2)},(_,i)=><rect key={i} x={i*2} y={0} width={i%3===0?2:1} height={ph*0.62} fill="#000"/>)}</svg>
+      <div style={{fontSize:6*zoom*0.5,fontFamily:"monospace",color:"#000",marginTop:1}}>SEV-001234-K001</div>
+      {resizeHandle}</div>;
+
+    if (el.type==="line") return <div key={el.id} style={{...base,display:"flex",alignItems:"center"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      <div style={{width:"100%",height:Math.max(1,el.borderWidth||1)*zoom*0.5,background:el.color||"#000"}}/>
+      {resizeHandle}</div>;
+
+    if (el.type==="rect") return <div key={el.id} style={{...base,background:el.bg||"transparent",border:(el.borderWidth||1)*zoom*0.3+"px solid "+(el.color||"#000")}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      {resizeHandle}</div>;
+
+    if (el.type==="logo") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",border:"1px dashed #ccc"}} onMouseDown={e=>onMouseDown(e,el.id)}>
+      {el.logoData ? <img src={el.logoData} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/> : <span style={{fontSize:9*zoom*0.5,color:"#aaa"}}>LOGO</span>}
+      {resizeHandle}</div>;
+
+    return null;
+  }
+
+  function PropsPanel() {
+    if (!sel) return <div style={{padding:16,color:"#94a3b8",fontSize:13,textAlign:"center"}}>Bir element seçin</div>;
+
+    const inpStyle = {width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"};
+    const lblStyle = {fontSize:10,color:"#94a3b8",display:"block",marginBottom:2};
+    const sectionStyle = {background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10};
+
+    return (
+      <div style={{padding:12}}>
+        {/* Konum & Boyut */}
+        <div style={sectionStyle}>
+          <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>📐 Konum & Boyut</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:4}}>
+            <div><label style={lblStyle}>X (mm)</label><input type="number" step="0.1" value={sel.x} onChange={e=>updateEl(sel.id,{x:Number(e.target.value)})} style={inpStyle}/></div>
+            <div><label style={lblStyle}>Y (mm)</label><input type="number" step="0.1" value={sel.y} onChange={e=>updateEl(sel.id,{y:Number(e.target.value)})} style={inpStyle}/></div>
+            <div><label style={lblStyle}>Genişlik (mm)</label><input type="number" step="0.1" value={sel.w} onChange={e=>updateEl(sel.id,{w:Number(e.target.value)})} style={inpStyle}/></div>
+            <div><label style={lblStyle}>Yükseklik (mm)</label><input type="number" step="0.1" value={sel.h} onChange={e=>updateEl(sel.id,{h:Number(e.target.value)})} style={inpStyle}/></div>
+          </div>
+        </div>
+
+        {/* Yazı özellikleri */}
+        {(sel.type==="text"||sel.type==="kolibox"||sel.type==="urunlist") && (
+          <div style={sectionStyle}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🔤 Yazı</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+              <div><label style={lblStyle}>Font (pt)</label><input type="number" min={4} max={32} step={0.5} value={sel.fontSize??9} onChange={e=>updateEl(sel.id,{fontSize:Number(e.target.value)})} style={inpStyle}/></div>
+              {sel.type==="urunlist" && <div><label style={lblStyle}>Satır Aralığı</label><input type="number" min={0} max={10} value={sel.satirAraligi??2} onChange={e=>updateEl(sel.id,{satirAraligi:Number(e.target.value)})} style={inpStyle}/></div>}
+              {sel.type==="urunlist" && <div><label style={lblStyle}>Maks Ürün</label><input type="number" min={1} max={20} value={sel.maxUrun??6} onChange={e=>updateEl(sel.id,{maxUrun:Number(e.target.value)})} style={inpStyle}/></div>}
+            </div>
+            {sel.type!=="urunlist" && (<>
+              <div style={{marginBottom:8}}>
+                <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Metin</label>
+                <input value={sel.value||""} onChange={e=>updateEl(sel.id,{value:e.target.value})} style={inpStyle}/>
+                <div style={{fontSize:9,color:"#64748b",marginTop:3}}>{"{shipmentNo} {customer} {address} {date} {boxNo} {totalBoxes}"}</div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Hizalama</label>
+                <div style={{display:"flex",gap:4}}>
+                  {["left","center","right"].map(a=>(
+                    <button key={a} onClick={()=>updateEl(sel.id,{align:a})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.align===a?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontSize:13}}>
+                      {a==="left"?"⬅️":a==="center"?"↔️":"➡️"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:4}}>
+                <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Stil</label>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>updateEl(sel.id,{fontWeight:sel.fontWeight==="bold"?"normal":"bold"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontWeight==="bold"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontWeight:"bold"}}>B</button>
+                  <button onClick={()=>updateEl(sel.id,{fontStyle:sel.fontStyle==="italic"?"normal":"italic"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontStyle==="italic"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontStyle:"italic"}}>I</button>
+                  <button onClick={()=>updateEl(sel.id,{textDecor:sel.textDecor==="underline"?"none":"underline"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.textDecor==="underline"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",textDecoration:"underline"}}>U</button>
+                </div>
+              </div>
+            </>)}
+          </div>
+        )}
+
+        {/* Renk */}
+        {sel.type !== "barcode" && (
+          <div style={sectionStyle}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🎨 Renk</div>
+            <div style={{marginBottom:8}}>
+              <label style={lblStyle}>Yazı Rengi</label>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <input type="color" value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
+                <input value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
+              </div>
+            </div>
+            <div style={{marginBottom:8}}>
+              <label style={lblStyle}>Arkaplan</label>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <input type="color" value={sel.bg||"#ffffff"} onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
+                <input value={sel.bg||""} placeholder="şeffaf" onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
+              </div>
+            </div>
+            {(sel.type==="text"||sel.type==="urunlist") && (
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+                <span style={{fontSize:12,color:"#e2e8f0"}}>Kenarlık</span>
+                <div onClick={()=>updateEl(sel.id,{border:!sel.border})} style={{width:36,height:20,borderRadius:10,background:sel.border?"#22c55e":"#2d3561",cursor:"pointer",position:"relative"}}>
+                  <div style={{position:"absolute",top:2,left:sel.border?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.15s"}}/>
+                </div>
+              </div>
+            )}
+            {sel.type==="rect" && (
+              <div style={{marginTop:8}}>
+                <label style={lblStyle}>Kenarlık Kalınlığı</label>
+                <input type="number" min={0} max={10} value={sel.borderWidth??1} onChange={e=>updateEl(sel.id,{borderWidth:Number(e.target.value)})} style={inpStyle}/>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Logo yükleme */}
+        {sel.type==="logo" && (
+          <div style={sectionStyle}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🖼️ Logo</div>
+            <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px",background:"#1a1a2e",border:"2px dashed #2d3561",borderRadius:8,cursor:"pointer"}}>
+              {sel.logoData ? <img src={sel.logoData} style={{height:30,maxWidth:80,objectFit:"contain"}}/> : <span style={{fontSize:11,color:"#94a3b8"}}>📁 Logo Yükle</span>}
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updateEl(sel.id,{logoData:ev.target.result});r.readAsDataURL(f);e.target.value="";}}/>
+            </label>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:6,marginTop:12}}>
+          <button onClick={()=>moveZ(sel.id,1)} style={{flex:1,padding:"6px",background:"#0f3460",border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",fontSize:12,color:"#e2e8f0"}}>⬆️ Öne</button>
+          <button onClick={()=>moveZ(sel.id,-1)} style={{flex:1,padding:"6px",background:"#0f3460",border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",fontSize:12,color:"#e2e8f0"}}>⬇️ Arka</button>
+          <button onClick={()=>deleteEl(sel.id)} style={{padding:"6px 10px",background:"#7f1d1d",border:"1px solid #ef4444",borderRadius:6,cursor:"pointer",fontSize:12,color:"#fca5a5"}}>🗑️</button>
+        </div>
+      </div>
+    );
+  }
+
+  function buildPrintHTML(shipData, boxData, boxIdx, totalBoxes) {
+    const sortedEls=[...elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
+    const map={"{shipmentNo}":shipData.shipment_no,"{customer}":shipData.customer_name,"{address}":shipData.customer_address||"","{date}":shipData.date,"{boxNo}":String(boxIdx),"{totalBoxes}":String(totalBoxes)};
+    const resolve=v=>{let r=v||"";Object.entries(map).forEach(([k,v2])=>r=r.replace(k,v2));return r;};
+    const elHTMLs=sortedEls.map(el=>{
+      const style=`position:absolute;left:${el.x}mm;top:${el.y}mm;width:${el.w}mm;height:${el.h}mm;box-sizing:border-box;overflow:hidden;`;
+      if(el.type==="text"){const v=el.field==="firmaAdi"?el.value:resolve(el.value);return `<div style="${style}display:flex;align-items:center;justify-content:${el.align==="center"?"center":el.align==="right"?"flex-end":"flex-start"};padding:0 1px;background:${el.bg||"transparent"};${el.border?"border:1px solid "+el.color+";":""}"><span style="font-size:${el.fontSize}pt;font-weight:${el.fontWeight};font-style:${el.fontStyle};text-decoration:${el.textDecor};color:${el.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</span></div>`;}
+      if(el.type==="kolibox")return `<div style="${style}display:flex;align-items:center;justify-content:${el.align==="center"?"center":"flex-start"};background:${el.bg||"#000"};padding:0 2mm;"><span style="font-size:${el.fontSize}pt;font-weight:${el.fontWeight||"bold"};color:${el.color||"#fff"};">KOLİ ${boxIdx} / ${totalBoxes}</span></div>`;
+      if(el.type==="urunlist"){const pad=(el.satirAraligi||2)+"px 1px";const rows=boxData.items.slice(0,el.maxUrun||6).map(u=>`<tr><td style="padding:${pad};border-bottom:1px solid #eee;font-size:${el.fontSize-1}pt;">${u.product_name.substring(0,28)}${u.product_name.length>28?"…":""}</td><td style="padding:${pad};color:#666;text-align:center;font-size:${el.fontSize-2}pt;">${u.sku||"-"}</td><td style="padding:${pad};font-weight:bold;text-align:right;">${u.qty}</td></tr>`).join("");const more=boxData.items.length>(el.maxUrun||6)?`<tr><td colspan="3" style="padding:${pad};color:#999;font-size:${el.fontSize-2}pt;">+${boxData.items.length-(el.maxUrun||6)} daha…</td></tr>`:"";return `<div style="${style}background:${el.bg||"transparent"};${el.border?"border:1px solid #ccc;":""}"><table style="width:100%;border-collapse:collapse;font-size:${el.fontSize}pt;table-layout:fixed;"><thead><tr style="border-bottom:1px solid #ccc;"><th style="text-align:left;padding:${pad};font-size:${el.fontSize-1}pt;">Ürün</th><th style="text-align:center;padding:${pad};width:14mm;font-size:${el.fontSize-1}pt;">SKU</th><th style="text-align:right;padding:${pad};width:8mm;font-size:${el.fontSize-1}pt;">Adet</th></tr></thead><tbody>${rows}${more}</tbody></table></div>`;}
+      if(el.type==="barcode"){const bars=Array.from({length:Math.floor(el.w/2*3.7795)},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="${el.h*3.7795*0.75}" fill="black"/>`).join("");return `<div style="${style}text-align:center;background:white;"><svg xmlns="http://www.w3.org/2000/svg" width="${el.w}mm" height="${el.h*0.8}mm">${bars}</svg><div style="font-size:6pt;font-family:monospace;">${shipData.shipment_no}-K${String(boxIdx).padStart(3,"0")}</div></div>`;}
+      if(el.type==="line")return `<div style="${style}display:flex;align-items:center;"><div style="width:100%;height:${el.borderWidth||1}px;background:${el.color||"#000"};"></div></div>`;
+      if(el.type==="rect")return `<div style="${style}background:${el.bg||"transparent"};border:${el.borderWidth||1}px solid ${el.color||"#000"};"></div>`;
+      if(el.type==="logo"&&el.logoData)return `<div style="${style}"><img src="${el.logoData}" style="width:100%;height:100%;object-fit:contain;"/></div>`;
+      return "";
+    }).join("");
+    return `<div style="position:relative;width:${canvasW}mm;height:${canvasH}mm;border:1px solid #000;background:white;page-break-after:always;overflow:hidden;">${elHTMLs}</div>`;
+  }
+
+  function printTest() {
+    const css=`*{box-sizing:border-box;}@page{margin:0;size:${canvasW}mm ${canvasH}mm;}body{margin:0;}table{border-collapse:collapse;}img{display:block;}`;
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${buildPrintHTML(prevShip, prevBox, 1, 3)}</body></html>`;
+    const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);
+  }
+
+  function saveDesign() {
+    const design = { canvasW, canvasH, elements };
+    localStorage.setItem("stokpro_label_design", JSON.stringify(design));
+    saveLabelTemplate({ ...DEFAULT_LABEL_TEMPLATE, width_mm: canvasW, height_mm: canvasH, _elements: elements });
+    notify("Tasarım kaydedildi ✓", "success");
+  }
+
+  // Override printBoxLabels to use this design
+  useEffect(() => {
+    saveLabelTemplate({ ...(labelTemplate||DEFAULT_LABEL_TEMPLATE), width_mm: canvasW, height_mm: canvasH, _elements: elements });
+  }, [canvasW, canvasH, elements]);
+
+  return (
+    <div style={{display:"flex",height:"calc(100vh - 80px)",overflow:"hidden",background:"#1a1a2e",fontFamily:"system-ui,sans-serif",borderRadius:12,marginTop:0}}>
+      {/* ── SOL: Araç Kutusu ── */}
+      <div style={{width:52,background:"#16213e",borderRight:"1px solid #0f3460",display:"flex",flexDirection:"column",alignItems:"center",paddingTop:8,gap:4,flexShrink:0,borderRadius:"12px 0 0 12px"}}>
+        {[{type:"text",icon:"T",title:"Metin"},{type:"kolibox",icon:"📦",title:"Koli No"},{type:"urunlist",icon:"☰",title:"Ürün Listesi"},{type:"barcode",icon:"▬",title:"Barkod"},{type:"logo",icon:"🖼",title:"Logo"},{type:"rect",icon:"⬜",title:"Kutu"},{type:"line",icon:"─",title:"Çizgi"}].map(t=>(
+          <button key={t.type} onClick={()=>addElement(t.type)} title={t.title} style={{width:36,height:36,background:"#0f3460",border:"1px solid #e94560",borderRadius:6,cursor:"pointer",color:"#e2e8f0",fontSize:t.icon==="T"?16:14,display:"flex",alignItems:"center",justifyContent:"center"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#e94560"} onMouseLeave={e=>e.currentTarget.style.background="#0f3460"}>{t.icon}</button>
+        ))}
+        <div style={{flex:1}}/>
+        <button onClick={()=>onBack()} title="Geri" style={{width:36,height:36,background:"transparent",border:"1px solid #555",borderRadius:6,cursor:"pointer",color:"#94a3b8",fontSize:16,marginBottom:8}}>←</button>
+      </div>
+
+      {/* ── ORTA: Canvas ── */}
+      <div style={{flex:1,overflow:"auto",background:"#1a1a2e",display:"flex",flexDirection:"column",alignItems:"center",padding:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,background:"#16213e",borderRadius:10,padding:"8px 14px",border:"1px solid #0f3460",width:"100%",maxWidth:860,boxSizing:"border-box"}}>
+          <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>CANVAS</span>
+          {[["W",canvasW,setCanvasW],["H",canvasH,setCanvasH]].map(([lbl,val,setter])=>(
+            <div key={lbl} style={{display:"flex",alignItems:"center",gap:4,background:"#0f3460",borderRadius:6,padding:"3px 8px"}}>
+              <label style={{color:"#94a3b8",fontSize:11}}>{lbl}</label>
+              <input type="number" value={val} onChange={e=>setter(Number(e.target.value))} style={{width:48,background:"transparent",border:"none",color:"#e2e8f0",fontSize:12,textAlign:"center"}}/>
+              <label style={{color:"#94a3b8",fontSize:11}}>mm</label>
+            </div>
+          ))}
+          <div style={{display:"flex",alignItems:"center",gap:4,background:"#0f3460",borderRadius:6,padding:"3px 8px"}}>
+            <label style={{color:"#94a3b8",fontSize:11}}>Zoom</label>
+            <input type="range" min={1} max={5} step={0.25} value={zoom} onChange={e=>setZoom(Number(e.target.value))} style={{width:70,accentColor:"#e94560"}}/>
+            <span style={{color:"#e2e8f0",fontSize:11,minWidth:28}}>{Math.round(zoom*100)}%</span>
+          </div>
+          <div style={{flex:1}}/>
+          <button onClick={printTest} style={{padding:"6px 12px",background:"#334155",border:"none",borderRadius:6,color:"#e2e8f0",cursor:"pointer",fontSize:12,fontWeight:600}}>🖨️ Test</button>
+          <button onClick={saveDesign} style={{padding:"6px 16px",background:"#e94560",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Kaydet</button>
+        </div>
+
+        <div style={{background:"#2d3561",borderRadius:12,padding:20,boxShadow:"0 8px 40px rgba(0,0,0,0.5)"}}>
+          <div style={{display:"flex",marginLeft:20,marginBottom:2}}>{Array.from({length:Math.ceil(canvasW/5)+1},(_,i)=><div key={i} style={{width:5*MM*zoom,flexShrink:0,fontSize:8,color:"#666",textAlign:"left",borderLeft:"1px solid #444",paddingLeft:1,height:12,lineHeight:"12px"}}>{i*5}</div>)}</div>
+          <div style={{display:"flex"}}>
+            <div style={{width:20}}>{Array.from({length:Math.ceil(canvasH/5)+1},(_,i)=><div key={i} style={{height:5*MM*zoom,flexShrink:0,fontSize:8,color:"#666",textAlign:"right",paddingRight:2,borderTop:"1px solid #444",lineHeight:"1"}}>{i*5}</div>)}</div>
+            <div ref={canvasRef} style={{position:"relative",width:canvasW*MM*zoom,height:canvasH*MM*zoom,background:"white",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",flexShrink:0,cursor:"default"}}
+              onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+              onClick={e=>{if(e.target===canvasRef.current)setSelId(null);}}>
+              <svg style={{position:"absolute",inset:0,pointerEvents:"none",opacity:0.12}} width="100%" height="100%">
+                <defs>
+                  <pattern id="sg2" width={1*MM*zoom} height={1*MM*zoom} patternUnits="userSpaceOnUse"><path d={`M ${1*MM*zoom} 0 L 0 0 0 ${1*MM*zoom}`} fill="none" stroke="#888" strokeWidth="0.3"/></pattern>
+                  <pattern id="gg2" width={5*MM*zoom} height={5*MM*zoom} patternUnits="userSpaceOnUse"><rect width={5*MM*zoom} height={5*MM*zoom} fill="url(#sg2)"/><path d={`M ${5*MM*zoom} 0 L 0 0 0 ${5*MM*zoom}`} fill="none" stroke="#888" strokeWidth="0.6"/></pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#gg2)"/>
+              </svg>
+              {[...elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0)).map(el=>renderEl(el))}
+            </div>
+          </div>
+        </div>
+        {sel&&<div style={{marginTop:10,color:"#94a3b8",fontSize:11}}>📍 {sel.label} — x:{sel.x}mm y:{sel.y}mm g:{sel.w}mm y:{sel.h}mm</div>}
+      </div>
+
+      {/* ── SAĞ: Properties ── */}
+      <div style={{width:260,background:"#16213e",borderLeft:"1px solid #0f3460",display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:"0 12px 12px 0"}}>
+        <div style={{display:"flex",borderBottom:"1px solid #0f3460"}}>
+          {[["elements","⊞ Özellik"],["layers","≡ Katmanlar"]].map(([k,lbl])=>(
+            <button key={k} onClick={()=>setActiveTab(k)} style={{flex:1,padding:"10px 4px",background:activeTab===k?"#0f3460":"transparent",border:"none",color:activeTab===k?"#e2e8f0":"#64748b",cursor:"pointer",fontSize:11,fontWeight:600}}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {activeTab==="elements"&&<PropsPanel/>}
+          {activeTab==="layers"&&(
+            <div style={{padding:10}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#64748b",marginBottom:8,textTransform:"uppercase"}}>Katmanlar (üstten alta)</div>
+              {[...elements].sort((a,b)=>(b.zIndex||0)-(a.zIndex||0)).map(el=>(
+                <div key={el.id} onClick={()=>setSelId(el.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,cursor:"pointer",marginBottom:3,background:selId===el.id?"#0f3460":"transparent",border:"1px solid "+(selId===el.id?"#e94560":"transparent")}}>
+                  <span style={{fontSize:13}}>{el.type==="text"?"T":el.type==="barcode"?"▬":el.type==="urunlist"?"☰":el.type==="kolibox"?"📦":el.type==="logo"?"🖼":el.type==="rect"?"⬜":"─"}</span>
+                  <span style={{fontSize:12,color:"#e2e8f0",flex:1}}>{el.label}</span>
+                  <button onClick={e=>{e.stopPropagation();deleteEl(el.id);}} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,padding:0}}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+} // end ShipmentLabelDesigner
+
 function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
   const [tab, setTab] = useState("list"); // list | new | label_designer
   const [shipments, setShipments] = useState(() => {
@@ -4209,360 +4566,7 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
 
   const tpl = labelTemplate || defaultLabelTemplate;
 
-  // ── BARTENDER-STİL ETİKET TASARIMCISI ──
-  const LabelDesigner = () => {
-    const MM = 3.7795;
-    const prevShip = { shipment_no:"SEV-001234", customer_name:"Örnek Müşteri A.Ş.", customer_address:"Atatürk Cad. No:5, İstanbul", date: new Date().toLocaleDateString("tr-TR") };
-    const prevBox = { id:1, items:[{product_name:"Ürün Adı Örnek 1",sku:"SKU001",qty:12},{product_name:"Ürün Adı Örnek 2",sku:"SKU002",qty:5},{product_name:"Uzun Ürün Adı Örnek 3",sku:"SKU003",qty:8}] };
-
-    const savedDesign = (() => { try { return JSON.parse(localStorage.getItem("stokpro_label_design") || "null"); } catch { return null; } })();
-
-    const [canvasW, setCanvasW] = useState(savedDesign?.canvasW || tpl.width_mm || 100);
-    const [canvasH, setCanvasH] = useState(savedDesign?.canvasH || tpl.height_mm || 70);
-    const [zoom, setZoom] = useState(2.5);
-    const [elements, setElements] = useState(savedDesign?.elements || [
-      { id:"e1", type:"text", label:"Firma Adı", x:2, y:2, w:60, h:7, value:"StokPro", field:"firmaAdi", fontSize:11, fontWeight:"bold", fontStyle:"normal", textDecor:"none", align:"left", color:"#000000", bg:"", border:false, zIndex:10 },
-      { id:"e2", type:"text", label:"Sevkiyat No", x:62, y:2, w:36, h:5, field:"shipmentNo", value:"{shipmentNo}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"right", color:"#333333", bg:"", border:false, zIndex:9 },
-      { id:"e3", type:"text", label:"Tarih", x:62, y:8, w:36, h:5, field:"date", value:"{date}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"right", color:"#666666", bg:"", border:false, zIndex:9 },
-      { id:"e4", type:"text", label:"Müşteri", x:2, y:12, w:96, h:6, field:"customer", value:"{customer}", fontSize:9, fontWeight:"bold", fontStyle:"normal", textDecor:"none", align:"left", color:"#000000", bg:"", border:false, zIndex:8 },
-      { id:"e5", type:"text", label:"Adres", x:2, y:19, w:96, h:5, field:"address", value:"{address}", fontSize:7, fontWeight:"normal", fontStyle:"normal", textDecor:"none", align:"left", color:"#555555", bg:"", border:false, zIndex:7 },
-      { id:"e6", type:"kolibox", label:"Koli No", x:2, y:26, w:96, h:8, fontSize:11, fontWeight:"bold", align:"center", color:"#ffffff", bg:"#000000", zIndex:6 },
-      { id:"e7", type:"urunlist", label:"Ürün Listesi", x:2, y:36, w:96, h:22, fontSize:7, satirAraligi:2, maxUrun:6, color:"#000000", bg:"", border:true, zIndex:5 },
-      { id:"e8", type:"barcode", label:"Barkod", x:20, y:60, w:60, h:8, zIndex:4 },
-    ]);
-    const [selId, setSelId] = useState("e1");
-    const [dragging, setDragging] = useState(null);
-    const [resizing, setResizing] = useState(null);
-    const [dragOffset, setDragOffset] = useState({x:0,y:0});
-    const [activeTab, setActiveTab] = useState("elements");
-    const canvasRef = useRef(null);
-    const sel = elements.find(e=>e.id===selId);
-
-    const varMap = { "{shipmentNo}":prevShip.shipment_no, "{customer}":prevShip.customer_name, "{address}":prevShip.customer_address, "{date}":prevShip.date, "{boxNo}":"1", "{totalBoxes}":"3" };
-    function resolveVal(el) {
-      if (el.field==="firmaAdi") return el.value || "FİRMA ADI";
-      return varMap[el.value] || el.value || "";
-    }
-
-    function onMouseDown(e, elId) {
-      e.stopPropagation();
-      setSelId(elId);
-      const rect = canvasRef.current.getBoundingClientRect();
-      const el = elements.find(x=>x.id===elId);
-      setDragging(elId);
-      setDragOffset({ x: e.clientX - rect.left - el.x*MM*zoom, y: e.clientY - rect.top - el.y*MM*zoom });
-    }
-    function onMouseMove(e) {
-      if (dragging) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const nx = (e.clientX - rect.left - dragOffset.x)/(MM*zoom);
-        const ny = (e.clientY - rect.top - dragOffset.y)/(MM*zoom);
-        setElements(prev=>prev.map(el=>el.id!==dragging?el:{...el,x:Math.max(0,Math.min(canvasW-el.w,Math.round(nx*10)/10)),y:Math.max(0,Math.min(canvasH-el.h,Math.round(ny*10)/10))}));
-      }
-      if (resizing) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const nw = (e.clientX-rect.left)/(MM*zoom)-resizing.startX;
-        const nh = (e.clientY-rect.top)/(MM*zoom)-resizing.startY;
-        setElements(prev=>prev.map(el=>el.id!==resizing.id?el:{...el,w:Math.max(5,Math.round(nw*10)/10),h:Math.max(3,Math.round(nh*10)/10)}));
-      }
-    }
-    function onMouseUp() { setDragging(null); setResizing(null); }
-    function onResizeStart(e, elId) {
-      e.stopPropagation();
-      const rect = canvasRef.current.getBoundingClientRect();
-      const el = elements.find(x=>x.id===elId);
-      setResizing({ id:elId, startX:el.x, startY:el.y });
-      setSelId(elId);
-    }
-    function updateEl(id, patch) { setElements(prev=>prev.map(el=>el.id!==id?el:{...el,...patch})); }
-    function deleteEl(id) { setElements(prev=>prev.filter(e=>e.id!==id)); setSelId(null); }
-    function moveZ(id, dir) { setElements(prev=>prev.map(el=>el.id!==id?el:{...el,zIndex:el.zIndex+dir})); }
-
-    function addElement(type) {
-      const id = "e"+Date.now();
-      const base = { id, x:5, y:5, w:40, h:8, zIndex:elements.length+1 };
-      const types = {
-        text:    {...base,type:"text",label:"Metin",value:"Metin",field:"",fontSize:9,fontWeight:"normal",fontStyle:"normal",textDecor:"none",align:"left",color:"#000000",bg:"",border:false},
-        barcode: {...base,type:"barcode",label:"Barkod",w:60,h:10},
-        line:    {...base,type:"line",label:"Çizgi",w:90,h:1,color:"#000000"},
-        rect:    {...base,type:"rect",label:"Kutu",w:30,h:15,color:"#000000",bg:"",borderWidth:1},
-        logo:    {...base,type:"logo",label:"Logo",w:20,h:12,logoData:""},
-        urunlist:{...base,type:"urunlist",label:"Ürün Listesi",w:90,h:25,fontSize:7,satirAraligi:2,maxUrun:6,color:"#000000",bg:"",border:true},
-        kolibox: {...base,type:"kolibox",label:"Koli No",w:90,h:8,fontSize:11,fontWeight:"bold",align:"center",color:"#ffffff",bg:"#000000"},
-      };
-      setElements(prev=>[...prev, types[type]||types.text]);
-      setSelId(id);
-    }
-
-    function renderEl(el) {
-      const px=el.x*MM*zoom, py=el.y*MM*zoom, pw=el.w*MM*zoom, ph=el.h*MM*zoom;
-      const isSel=selId===el.id;
-      const base={position:"absolute",left:px,top:py,width:pw,height:ph,cursor:"move",userSelect:"none",zIndex:el.zIndex||1,boxSizing:"border-box",outline:isSel?"2px solid #3b82f6":"1px dashed rgba(0,0,0,0.15)",outlineOffset:isSel?1:0};
-      const resizeHandle = isSel && <div onMouseDown={e=>onResizeStart(e,el.id)} style={{position:"absolute",right:-4,bottom:-4,width:8,height:8,background:"#3b82f6",borderRadius:2,cursor:"se-resize",zIndex:999}}/>;
-
-      if (el.type==="text") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",background:el.bg||"transparent",justifyContent:el.align==="center"?"center":el.align==="right"?"flex-end":"flex-start",padding:"0 2px",overflow:"hidden"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        <span style={{fontSize:el.fontSize*zoom*0.6,fontWeight:el.fontWeight,fontStyle:el.fontStyle,textDecoration:el.textDecor,color:el.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{resolveVal(el)}</span>
-        {el.border&&<div style={{position:"absolute",inset:0,border:"1px solid "+el.color,pointerEvents:"none"}}/>}
-        {resizeHandle}</div>;
-
-      if (el.type==="kolibox") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",justifyContent:el.align==="center"?"center":"flex-start",background:el.bg||"#000",padding:"0 2px",overflow:"hidden"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        <span style={{fontSize:el.fontSize*zoom*0.6,fontWeight:el.fontWeight||"bold",color:el.color||"#fff",whiteSpace:"nowrap"}}>KOLİ 1 / 3</span>
-        {resizeHandle}</div>;
-
-      if (el.type==="urunlist") return <div key={el.id} style={{...base,background:el.bg||"transparent",border:el.border?"1px solid #ccc":"none",overflow:"hidden",padding:"1px"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:el.fontSize*zoom*0.6}}>
-          <thead><tr style={{borderBottom:"1px solid #999"}}><th style={{textAlign:"left",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>Ürün</th><th style={{width:"18%",textAlign:"center",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>SKU</th><th style={{width:"12%",textAlign:"right",padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,fontWeight:600,fontSize:el.fontSize*zoom*0.55}}>Adet</th></tr></thead>
-          <tbody>{prevBox.items.slice(0,el.maxUrun||6).map((u,i)=><tr key={i} style={{borderBottom:"1px solid #eee"}}><td style={{padding:el.satirAraligi*zoom*0.3+"px 2px",color:el.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:0}}>{u.product_name}</td><td style={{textAlign:"center",color:"#666",padding:"1px 2px"}}>{u.sku}</td><td style={{textAlign:"right",fontWeight:"bold",color:el.color,padding:"1px 2px"}}>{u.qty}</td></tr>)}</tbody>
-        </table>
-        {resizeHandle}</div>;
-
-      if (el.type==="barcode") return <div key={el.id} style={{...base,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"white"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        <svg width={pw-4} height={ph*0.72} style={{display:"block"}}>{Array.from({length:Math.floor((pw-4)/2)},(_,i)=><rect key={i} x={i*2} y={0} width={i%3===0?2:1} height={ph*0.62} fill="#000"/>)}</svg>
-        <div style={{fontSize:6*zoom*0.5,fontFamily:"monospace",color:"#000",marginTop:1}}>SEV-001234-K001</div>
-        {resizeHandle}</div>;
-
-      if (el.type==="line") return <div key={el.id} style={{...base,display:"flex",alignItems:"center"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        <div style={{width:"100%",height:Math.max(1,el.borderWidth||1)*zoom*0.5,background:el.color||"#000"}}/>
-        {resizeHandle}</div>;
-
-      if (el.type==="rect") return <div key={el.id} style={{...base,background:el.bg||"transparent",border:(el.borderWidth||1)*zoom*0.3+"px solid "+(el.color||"#000")}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        {resizeHandle}</div>;
-
-      if (el.type==="logo") return <div key={el.id} style={{...base,display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",border:"1px dashed #ccc"}} onMouseDown={e=>onMouseDown(e,el.id)}>
-        {el.logoData ? <img src={el.logoData} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/> : <span style={{fontSize:9*zoom*0.5,color:"#aaa"}}>LOGO</span>}
-        {resizeHandle}</div>;
-
-      return null;
-    }
-
-    function PropsPanel() {
-      if (!sel) return <div style={{padding:16,color:"#94a3b8",fontSize:13,textAlign:"center"}}>Bir element seçin</div>;
-
-      const inpStyle = {width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"};
-      const lblStyle = {fontSize:10,color:"#94a3b8",display:"block",marginBottom:2};
-      const sectionStyle = {background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10};
-
-      return (
-        <div style={{padding:12}}>
-          {/* Konum & Boyut */}
-          <div style={sectionStyle}>
-            <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>📐 Konum & Boyut</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:4}}>
-              <div><label style={lblStyle}>X (mm)</label><input type="number" step="0.1" value={sel.x} onChange={e=>updateEl(sel.id,{x:Number(e.target.value)})} style={inpStyle}/></div>
-              <div><label style={lblStyle}>Y (mm)</label><input type="number" step="0.1" value={sel.y} onChange={e=>updateEl(sel.id,{y:Number(e.target.value)})} style={inpStyle}/></div>
-              <div><label style={lblStyle}>Genişlik (mm)</label><input type="number" step="0.1" value={sel.w} onChange={e=>updateEl(sel.id,{w:Number(e.target.value)})} style={inpStyle}/></div>
-              <div><label style={lblStyle}>Yükseklik (mm)</label><input type="number" step="0.1" value={sel.h} onChange={e=>updateEl(sel.id,{h:Number(e.target.value)})} style={inpStyle}/></div>
-            </div>
-          </div>
-
-          {/* Yazı özellikleri */}
-          {(sel.type==="text"||sel.type==="kolibox"||sel.type==="urunlist") && (
-            <div style={sectionStyle}>
-              <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🔤 Yazı</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-                <div><label style={lblStyle}>Font (pt)</label><input type="number" min={4} max={32} step={0.5} value={sel.fontSize??9} onChange={e=>updateEl(sel.id,{fontSize:Number(e.target.value)})} style={inpStyle}/></div>
-                {sel.type==="urunlist" && <div><label style={lblStyle}>Satır Aralığı</label><input type="number" min={0} max={10} value={sel.satirAraligi??2} onChange={e=>updateEl(sel.id,{satirAraligi:Number(e.target.value)})} style={inpStyle}/></div>}
-                {sel.type==="urunlist" && <div><label style={lblStyle}>Maks Ürün</label><input type="number" min={1} max={20} value={sel.maxUrun??6} onChange={e=>updateEl(sel.id,{maxUrun:Number(e.target.value)})} style={inpStyle}/></div>}
-              </div>
-              {sel.type!=="urunlist" && (<>
-                <div style={{marginBottom:8}}>
-                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Metin</label>
-                  <input value={sel.value||""} onChange={e=>updateEl(sel.id,{value:e.target.value})} style={inpStyle}/>
-                  <div style={{fontSize:9,color:"#64748b",marginTop:3}}>{"{shipmentNo} {customer} {address} {date} {boxNo} {totalBoxes}"}</div>
-                </div>
-                <div style={{marginBottom:8}}>
-                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Hizalama</label>
-                  <div style={{display:"flex",gap:4}}>
-                    {["left","center","right"].map(a=>(
-                      <button key={a} onClick={()=>updateEl(sel.id,{align:a})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.align===a?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontSize:13}}>
-                        {a==="left"?"⬅️":a==="center"?"↔️":"➡️"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{marginBottom:4}}>
-                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Stil</label>
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>updateEl(sel.id,{fontWeight:sel.fontWeight==="bold"?"normal":"bold"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontWeight==="bold"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontWeight:"bold"}}>B</button>
-                    <button onClick={()=>updateEl(sel.id,{fontStyle:sel.fontStyle==="italic"?"normal":"italic"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontStyle==="italic"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontStyle:"italic"}}>I</button>
-                    <button onClick={()=>updateEl(sel.id,{textDecor:sel.textDecor==="underline"?"none":"underline"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.textDecor==="underline"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",textDecoration:"underline"}}>U</button>
-                  </div>
-                </div>
-              </>)}
-            </div>
-          )}
-
-          {/* Renk */}
-          {sel.type !== "barcode" && (
-            <div style={sectionStyle}>
-              <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🎨 Renk</div>
-              <div style={{marginBottom:8}}>
-                <label style={lblStyle}>Yazı Rengi</label>
-                <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                  <input type="color" value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
-                  <input value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
-                </div>
-              </div>
-              <div style={{marginBottom:8}}>
-                <label style={lblStyle}>Arkaplan</label>
-                <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                  <input type="color" value={sel.bg||"#ffffff"} onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
-                  <input value={sel.bg||""} placeholder="şeffaf" onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
-                </div>
-              </div>
-              {(sel.type==="text"||sel.type==="urunlist") && (
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
-                  <span style={{fontSize:12,color:"#e2e8f0"}}>Kenarlık</span>
-                  <div onClick={()=>updateEl(sel.id,{border:!sel.border})} style={{width:36,height:20,borderRadius:10,background:sel.border?"#22c55e":"#2d3561",cursor:"pointer",position:"relative"}}>
-                    <div style={{position:"absolute",top:2,left:sel.border?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.15s"}}/>
-                  </div>
-                </div>
-              )}
-              {sel.type==="rect" && (
-                <div style={{marginTop:8}}>
-                  <label style={lblStyle}>Kenarlık Kalınlığı</label>
-                  <input type="number" min={0} max={10} value={sel.borderWidth??1} onChange={e=>updateEl(sel.id,{borderWidth:Number(e.target.value)})} style={inpStyle}/>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Logo yükleme */}
-          {sel.type==="logo" && (
-            <div style={sectionStyle}>
-              <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🖼️ Logo</div>
-              <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px",background:"#1a1a2e",border:"2px dashed #2d3561",borderRadius:8,cursor:"pointer"}}>
-                {sel.logoData ? <img src={sel.logoData} style={{height:30,maxWidth:80,objectFit:"contain"}}/> : <span style={{fontSize:11,color:"#94a3b8"}}>📁 Logo Yükle</span>}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updateEl(sel.id,{logoData:ev.target.result});r.readAsDataURL(f);e.target.value="";}}/>
-              </label>
-            </div>
-          )}
-
-          <div style={{display:"flex",gap:6,marginTop:12}}>
-            <button onClick={()=>moveZ(sel.id,1)} style={{flex:1,padding:"6px",background:"#0f3460",border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",fontSize:12,color:"#e2e8f0"}}>⬆️ Öne</button>
-            <button onClick={()=>moveZ(sel.id,-1)} style={{flex:1,padding:"6px",background:"#0f3460",border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",fontSize:12,color:"#e2e8f0"}}>⬇️ Arka</button>
-            <button onClick={()=>deleteEl(sel.id)} style={{padding:"6px 10px",background:"#7f1d1d",border:"1px solid #ef4444",borderRadius:6,cursor:"pointer",fontSize:12,color:"#fca5a5"}}>🗑️</button>
-          </div>
-        </div>
-      );
-    }
-
-    function buildPrintHTML(shipData, boxData, boxIdx, totalBoxes) {
-      const sortedEls=[...elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
-      const map={"{shipmentNo}":shipData.shipment_no,"{customer}":shipData.customer_name,"{address}":shipData.customer_address||"","{date}":shipData.date,"{boxNo}":String(boxIdx),"{totalBoxes}":String(totalBoxes)};
-      const resolve=v=>{let r=v||"";Object.entries(map).forEach(([k,v2])=>r=r.replace(k,v2));return r;};
-      const elHTMLs=sortedEls.map(el=>{
-        const style=`position:absolute;left:${el.x}mm;top:${el.y}mm;width:${el.w}mm;height:${el.h}mm;box-sizing:border-box;overflow:hidden;`;
-        if(el.type==="text"){const v=el.field==="firmaAdi"?el.value:resolve(el.value);return `<div style="${style}display:flex;align-items:center;justify-content:${el.align==="center"?"center":el.align==="right"?"flex-end":"flex-start"};padding:0 1px;background:${el.bg||"transparent"};${el.border?"border:1px solid "+el.color+";":""}"><span style="font-size:${el.fontSize}pt;font-weight:${el.fontWeight};font-style:${el.fontStyle};text-decoration:${el.textDecor};color:${el.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</span></div>`;}
-        if(el.type==="kolibox")return `<div style="${style}display:flex;align-items:center;justify-content:${el.align==="center"?"center":"flex-start"};background:${el.bg||"#000"};padding:0 2mm;"><span style="font-size:${el.fontSize}pt;font-weight:${el.fontWeight||"bold"};color:${el.color||"#fff"};">KOLİ ${boxIdx} / ${totalBoxes}</span></div>`;
-        if(el.type==="urunlist"){const pad=(el.satirAraligi||2)+"px 1px";const rows=boxData.items.slice(0,el.maxUrun||6).map(u=>`<tr><td style="padding:${pad};border-bottom:1px solid #eee;font-size:${el.fontSize-1}pt;">${u.product_name.substring(0,28)}${u.product_name.length>28?"…":""}</td><td style="padding:${pad};color:#666;text-align:center;font-size:${el.fontSize-2}pt;">${u.sku||"-"}</td><td style="padding:${pad};font-weight:bold;text-align:right;">${u.qty}</td></tr>`).join("");const more=boxData.items.length>(el.maxUrun||6)?`<tr><td colspan="3" style="padding:${pad};color:#999;font-size:${el.fontSize-2}pt;">+${boxData.items.length-(el.maxUrun||6)} daha…</td></tr>`:"";return `<div style="${style}background:${el.bg||"transparent"};${el.border?"border:1px solid #ccc;":""}"><table style="width:100%;border-collapse:collapse;font-size:${el.fontSize}pt;table-layout:fixed;"><thead><tr style="border-bottom:1px solid #ccc;"><th style="text-align:left;padding:${pad};font-size:${el.fontSize-1}pt;">Ürün</th><th style="text-align:center;padding:${pad};width:14mm;font-size:${el.fontSize-1}pt;">SKU</th><th style="text-align:right;padding:${pad};width:8mm;font-size:${el.fontSize-1}pt;">Adet</th></tr></thead><tbody>${rows}${more}</tbody></table></div>`;}
-        if(el.type==="barcode"){const bars=Array.from({length:Math.floor(el.w/2*3.7795)},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="${el.h*3.7795*0.75}" fill="black"/>`).join("");return `<div style="${style}text-align:center;background:white;"><svg xmlns="http://www.w3.org/2000/svg" width="${el.w}mm" height="${el.h*0.8}mm">${bars}</svg><div style="font-size:6pt;font-family:monospace;">${shipData.shipment_no}-K${String(boxIdx).padStart(3,"0")}</div></div>`;}
-        if(el.type==="line")return `<div style="${style}display:flex;align-items:center;"><div style="width:100%;height:${el.borderWidth||1}px;background:${el.color||"#000"};"></div></div>`;
-        if(el.type==="rect")return `<div style="${style}background:${el.bg||"transparent"};border:${el.borderWidth||1}px solid ${el.color||"#000"};"></div>`;
-        if(el.type==="logo"&&el.logoData)return `<div style="${style}"><img src="${el.logoData}" style="width:100%;height:100%;object-fit:contain;"/></div>`;
-        return "";
-      }).join("");
-      return `<div style="position:relative;width:${canvasW}mm;height:${canvasH}mm;border:1px solid #000;background:white;page-break-after:always;overflow:hidden;">${elHTMLs}</div>`;
-    }
-
-    function printTest() {
-      const css=`*{box-sizing:border-box;}@page{margin:0;size:${canvasW}mm ${canvasH}mm;}body{margin:0;}table{border-collapse:collapse;}img{display:block;}`;
-      const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${buildPrintHTML(prevShip, prevBox, 1, 3)}</body></html>`;
-      const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);
-    }
-
-    function saveDesign() {
-      const design = { canvasW, canvasH, elements };
-      localStorage.setItem("stokpro_label_design", JSON.stringify(design));
-      saveLabelTemplate({ ...tpl, width_mm: canvasW, height_mm: canvasH, _elements: elements });
-      notify("Tasarım kaydedildi ✓", "success");
-    }
-
-    // Override printBoxLabels to use this design
-    useEffect(() => {
-      saveLabelTemplate({ ...(labelTemplate||defaultLabelTemplate), width_mm: canvasW, height_mm: canvasH, _elements: elements });
-    }, [canvasW, canvasH, elements]);
-
-    return (
-      <div style={{display:"flex",height:"calc(100vh - 80px)",overflow:"hidden",background:"#1a1a2e",fontFamily:"system-ui,sans-serif",borderRadius:12,marginTop:0}}>
-        {/* ── SOL: Araç Kutusu ── */}
-        <div style={{width:52,background:"#16213e",borderRight:"1px solid #0f3460",display:"flex",flexDirection:"column",alignItems:"center",paddingTop:8,gap:4,flexShrink:0,borderRadius:"12px 0 0 12px"}}>
-          {[{type:"text",icon:"T",title:"Metin"},{type:"kolibox",icon:"📦",title:"Koli No"},{type:"urunlist",icon:"☰",title:"Ürün Listesi"},{type:"barcode",icon:"▬",title:"Barkod"},{type:"logo",icon:"🖼",title:"Logo"},{type:"rect",icon:"⬜",title:"Kutu"},{type:"line",icon:"─",title:"Çizgi"}].map(t=>(
-            <button key={t.type} onClick={()=>addElement(t.type)} title={t.title} style={{width:36,height:36,background:"#0f3460",border:"1px solid #e94560",borderRadius:6,cursor:"pointer",color:"#e2e8f0",fontSize:t.icon==="T"?16:14,display:"flex",alignItems:"center",justifyContent:"center"}}
-              onMouseEnter={e=>e.currentTarget.style.background="#e94560"} onMouseLeave={e=>e.currentTarget.style.background="#0f3460"}>{t.icon}</button>
-          ))}
-          <div style={{flex:1}}/>
-          <button onClick={()=>setTab("list")} title="Geri" style={{width:36,height:36,background:"transparent",border:"1px solid #555",borderRadius:6,cursor:"pointer",color:"#94a3b8",fontSize:16,marginBottom:8}}>←</button>
-        </div>
-
-        {/* ── ORTA: Canvas ── */}
-        <div style={{flex:1,overflow:"auto",background:"#1a1a2e",display:"flex",flexDirection:"column",alignItems:"center",padding:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,background:"#16213e",borderRadius:10,padding:"8px 14px",border:"1px solid #0f3460",width:"100%",maxWidth:860,boxSizing:"border-box"}}>
-            <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>CANVAS</span>
-            {[["W",canvasW,setCanvasW],["H",canvasH,setCanvasH]].map(([lbl,val,setter])=>(
-              <div key={lbl} style={{display:"flex",alignItems:"center",gap:4,background:"#0f3460",borderRadius:6,padding:"3px 8px"}}>
-                <label style={{color:"#94a3b8",fontSize:11}}>{lbl}</label>
-                <input type="number" value={val} onChange={e=>setter(Number(e.target.value))} style={{width:48,background:"transparent",border:"none",color:"#e2e8f0",fontSize:12,textAlign:"center"}}/>
-                <label style={{color:"#94a3b8",fontSize:11}}>mm</label>
-              </div>
-            ))}
-            <div style={{display:"flex",alignItems:"center",gap:4,background:"#0f3460",borderRadius:6,padding:"3px 8px"}}>
-              <label style={{color:"#94a3b8",fontSize:11}}>Zoom</label>
-              <input type="range" min={1} max={5} step={0.25} value={zoom} onChange={e=>setZoom(Number(e.target.value))} style={{width:70,accentColor:"#e94560"}}/>
-              <span style={{color:"#e2e8f0",fontSize:11,minWidth:28}}>{Math.round(zoom*100)}%</span>
-            </div>
-            <div style={{flex:1}}/>
-            <button onClick={printTest} style={{padding:"6px 12px",background:"#334155",border:"none",borderRadius:6,color:"#e2e8f0",cursor:"pointer",fontSize:12,fontWeight:600}}>🖨️ Test</button>
-            <button onClick={saveDesign} style={{padding:"6px 16px",background:"#e94560",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Kaydet</button>
-          </div>
-
-          <div style={{background:"#2d3561",borderRadius:12,padding:20,boxShadow:"0 8px 40px rgba(0,0,0,0.5)"}}>
-            <div style={{display:"flex",marginLeft:20,marginBottom:2}}>{Array.from({length:Math.ceil(canvasW/5)+1},(_,i)=><div key={i} style={{width:5*MM*zoom,flexShrink:0,fontSize:8,color:"#666",textAlign:"left",borderLeft:"1px solid #444",paddingLeft:1,height:12,lineHeight:"12px"}}>{i*5}</div>)}</div>
-            <div style={{display:"flex"}}>
-              <div style={{width:20}}>{Array.from({length:Math.ceil(canvasH/5)+1},(_,i)=><div key={i} style={{height:5*MM*zoom,flexShrink:0,fontSize:8,color:"#666",textAlign:"right",paddingRight:2,borderTop:"1px solid #444",lineHeight:"1"}}>{i*5}</div>)}</div>
-              <div ref={canvasRef} style={{position:"relative",width:canvasW*MM*zoom,height:canvasH*MM*zoom,background:"white",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",flexShrink:0,cursor:"default"}}
-                onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-                onClick={e=>{if(e.target===canvasRef.current)setSelId(null);}}>
-                <svg style={{position:"absolute",inset:0,pointerEvents:"none",opacity:0.12}} width="100%" height="100%">
-                  <defs>
-                    <pattern id="sg2" width={1*MM*zoom} height={1*MM*zoom} patternUnits="userSpaceOnUse"><path d={`M ${1*MM*zoom} 0 L 0 0 0 ${1*MM*zoom}`} fill="none" stroke="#888" strokeWidth="0.3"/></pattern>
-                    <pattern id="gg2" width={5*MM*zoom} height={5*MM*zoom} patternUnits="userSpaceOnUse"><rect width={5*MM*zoom} height={5*MM*zoom} fill="url(#sg2)"/><path d={`M ${5*MM*zoom} 0 L 0 0 0 ${5*MM*zoom}`} fill="none" stroke="#888" strokeWidth="0.6"/></pattern>
-                  </defs>
-                  <rect width="100%" height="100%" fill="url(#gg2)"/>
-                </svg>
-                {[...elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0)).map(el=>renderEl(el))}
-              </div>
-            </div>
-          </div>
-          {sel&&<div style={{marginTop:10,color:"#94a3b8",fontSize:11}}>📍 {sel.label} — x:{sel.x}mm y:{sel.y}mm g:{sel.w}mm y:{sel.h}mm</div>}
-        </div>
-
-        {/* ── SAĞ: Properties ── */}
-        <div style={{width:260,background:"#16213e",borderLeft:"1px solid #0f3460",display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:"0 12px 12px 0"}}>
-          <div style={{display:"flex",borderBottom:"1px solid #0f3460"}}>
-            {[["elements","⊞ Özellik"],["layers","≡ Katmanlar"]].map(([k,lbl])=>(
-              <button key={k} onClick={()=>setActiveTab(k)} style={{flex:1,padding:"10px 4px",background:activeTab===k?"#0f3460":"transparent",border:"none",color:activeTab===k?"#e2e8f0":"#64748b",cursor:"pointer",fontSize:11,fontWeight:600}}>{lbl}</button>
-            ))}
-          </div>
-          <div style={{flex:1,overflowY:"auto"}}>
-            {activeTab==="elements"&&<PropsPanel/>}
-            {activeTab==="layers"&&(
-              <div style={{padding:10}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#64748b",marginBottom:8,textTransform:"uppercase"}}>Katmanlar (üstten alta)</div>
-                {[...elements].sort((a,b)=>(b.zIndex||0)-(a.zIndex||0)).map(el=>(
-                  <div key={el.id} onClick={()=>setSelId(el.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,cursor:"pointer",marginBottom:3,background:selId===el.id?"#0f3460":"transparent",border:"1px solid "+(selId===el.id?"#e94560":"transparent")}}>
-                    <span style={{fontSize:13}}>{el.type==="text"?"T":el.type==="barcode"?"▬":el.type==="urunlist"?"☰":el.type==="kolibox"?"📦":el.type==="logo"?"🖼":el.type==="rect"?"⬜":"─"}</span>
-                    <span style={{fontSize:12,color:"#e2e8f0",flex:1}}>{el.label}</span>
-                    <button onClick={e=>{e.stopPropagation();deleteEl(el.id);}} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,padding:0}}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }; // end LabelDesigner
+  // LabelDesigner is defined outside as ShipmentLabelDesigner
 
   // ── SHIPMENT DETAIL ──
   const ShipmentDetail = ({ s }) => (
@@ -4757,7 +4761,7 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
       )}
 
       {/* Label Designer Tab */}
-      {tab === "label_designer" && <LabelDesigner />}
+      {tab === "label_designer" && <ShipmentLabelDesigner onBack={()=>setTab("list")} saveLabelTemplate={saveLabelTemplate} labelTemplate={labelTemplate} notify={notify} />}
     </div>
   );
 }
