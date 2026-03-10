@@ -4337,67 +4337,99 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
 
     function PropsPanel() {
       if (!sel) return <div style={{padding:16,color:"#94a3b8",fontSize:13,textAlign:"center"}}>Bir element seçin</div>;
-      const F=({lbl,children})=><div style={{marginBottom:10}}><label style={{display:"block",fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.04em"}}>{lbl}</label>{children}</div>;
-      const Inp=({field,type="text",min,max,step})=><input type={type} value={sel[field]??""} min={min} max={max} step={step} onChange={e=>updateEl(sel.id,{[field]:type==="number"?Number(e.target.value):e.target.value})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#0f3460",color:"#e2e8f0"}}/>;
-      const Row=({children})=><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>{children}</div>;
+
+      const inpStyle = {width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"};
+      const lblStyle = {fontSize:10,color:"#94a3b8",display:"block",marginBottom:2};
+      const sectionStyle = {background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10};
+
       return (
         <div style={{padding:12}}>
-          <div style={{background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+          {/* Konum & Boyut */}
+          <div style={sectionStyle}>
             <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>📐 Konum & Boyut</div>
-            <Row>
-              <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>X (mm)</label><input type="number" step="0.1" value={sel.x} onChange={e=>updateEl(sel.id,{x:Number(e.target.value)})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
-              <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Y (mm)</label><input type="number" step="0.1" value={sel.y} onChange={e=>updateEl(sel.id,{y:Number(e.target.value)})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
-              <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>G (mm)</label><input type="number" step="0.1" value={sel.w} onChange={e=>updateEl(sel.id,{w:Number(e.target.value)})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
-              <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Y (mm)</label><input type="number" step="0.1" value={sel.h} onChange={e=>updateEl(sel.id,{h:Number(e.target.value)})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
-            </Row>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:4}}>
+              <div><label style={lblStyle}>X (mm)</label><input type="number" step="0.1" value={sel.x} onChange={e=>updateEl(sel.id,{x:Number(e.target.value)})} style={inpStyle}/></div>
+              <div><label style={lblStyle}>Y (mm)</label><input type="number" step="0.1" value={sel.y} onChange={e=>updateEl(sel.id,{y:Number(e.target.value)})} style={inpStyle}/></div>
+              <div><label style={lblStyle}>Genişlik (mm)</label><input type="number" step="0.1" value={sel.w} onChange={e=>updateEl(sel.id,{w:Number(e.target.value)})} style={inpStyle}/></div>
+              <div><label style={lblStyle}>Yükseklik (mm)</label><input type="number" step="0.1" value={sel.h} onChange={e=>updateEl(sel.id,{h:Number(e.target.value)})} style={inpStyle}/></div>
+            </div>
           </div>
 
+          {/* Yazı özellikleri */}
           {(sel.type==="text"||sel.type==="kolibox"||sel.type==="urunlist") && (
-            <div style={{background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+            <div style={sectionStyle}>
               <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🔤 Yazı</div>
-              <Row>
-                <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Font (pt)</label><Inp field="fontSize" type="number" min={4} max={32} step={0.5}/></div>
-                {sel.type==="urunlist"&&<div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Satır Aralığı</label><Inp field="satirAraligi" type="number" min={0} max={10}/></div>}
-                {sel.type==="urunlist"&&<div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Maks Ürün</label><Inp field="maxUrun" type="number" min={1} max={20}/></div>}
-              </Row>
-              {sel.type!=="urunlist"&&(<>
-                <F lbl="Metin">
-                  <input value={sel.value||""} onChange={e=>updateEl(sel.id,{value:e.target.value})} style={{width:"100%",padding:"5px 8px",border:"1px solid #2d3561",borderRadius:6,fontSize:12,boxSizing:"border-box",background:"#1a1a2e",color:"#e2e8f0"}}/>
-                  <div style={{fontSize:9,color:"#64748b",marginTop:3}}>Değişkenler: {"{shipmentNo} {customer} {address} {date} {boxNo} {totalBoxes}"}</div>
-                </F>
-                <F lbl="Hizalama">
-                  <div style={{display:"flex",gap:4}}>{["left","center","right"].map(a=><button key={a} onClick={()=>updateEl(sel.id,{align:a})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:selId&&sel.align===a?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontSize:13}}>{a==="left"?"⬅️":a==="center"?"↔️":"➡️"}</button>)}</div>
-                </F>
-                <F lbl="Stil">
-                  <div style={{display:"flex",gap:4}}>{[["fontWeight","bold","B","normal"],["fontStyle","italic","I","normal"],["textDecor","underline","U","none"]].map(([field,on,lbl,off])=><button key={field} onClick={()=>updateEl(sel.id,{[field]:sel[field]===on?off:on})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel[field]===on?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontSize:13,fontWeight:field==="fontWeight"?"bold":"normal",fontStyle:field==="fontStyle"?"italic":"normal",textDecoration:field==="textDecor"?"underline":"none"}}>{lbl}</button>)}</div>
-                </F>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                <div><label style={lblStyle}>Font (pt)</label><input type="number" min={4} max={32} step={0.5} value={sel.fontSize??9} onChange={e=>updateEl(sel.id,{fontSize:Number(e.target.value)})} style={inpStyle}/></div>
+                {sel.type==="urunlist" && <div><label style={lblStyle}>Satır Aralığı</label><input type="number" min={0} max={10} value={sel.satirAraligi??2} onChange={e=>updateEl(sel.id,{satirAraligi:Number(e.target.value)})} style={inpStyle}/></div>}
+                {sel.type==="urunlist" && <div><label style={lblStyle}>Maks Ürün</label><input type="number" min={1} max={20} value={sel.maxUrun??6} onChange={e=>updateEl(sel.id,{maxUrun:Number(e.target.value)})} style={inpStyle}/></div>}
+              </div>
+              {sel.type!=="urunlist" && (<>
+                <div style={{marginBottom:8}}>
+                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Metin</label>
+                  <input value={sel.value||""} onChange={e=>updateEl(sel.id,{value:e.target.value})} style={inpStyle}/>
+                  <div style={{fontSize:9,color:"#64748b",marginTop:3}}>{"{shipmentNo} {customer} {address} {date} {boxNo} {totalBoxes}"}</div>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Hizalama</label>
+                  <div style={{display:"flex",gap:4}}>
+                    {["left","center","right"].map(a=>(
+                      <button key={a} onClick={()=>updateEl(sel.id,{align:a})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.align===a?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontSize:13}}>
+                        {a==="left"?"⬅️":a==="center"?"↔️":"➡️"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:4}}>
+                  <label style={{...lblStyle,textTransform:"uppercase",fontWeight:700}}>Stil</label>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>updateEl(sel.id,{fontWeight:sel.fontWeight==="bold"?"normal":"bold"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontWeight==="bold"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontWeight:"bold"}}>B</button>
+                    <button onClick={()=>updateEl(sel.id,{fontStyle:sel.fontStyle==="italic"?"normal":"italic"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.fontStyle==="italic"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",fontStyle:"italic"}}>I</button>
+                    <button onClick={()=>updateEl(sel.id,{textDecor:sel.textDecor==="underline"?"none":"underline"})} style={{flex:1,padding:"4px",border:"1px solid #2d3561",borderRadius:6,background:sel.textDecor==="underline"?"#e94560":"#0f3460",color:"#e2e8f0",cursor:"pointer",textDecoration:"underline"}}>U</button>
+                  </div>
+                </div>
               </>)}
             </div>
           )}
 
-          {sel.type!=="barcode"&&(
-            <div style={{background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+          {/* Renk */}
+          {sel.type !== "barcode" && (
+            <div style={sectionStyle}>
               <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🎨 Renk</div>
-              <Row>
-                <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Yazı Rengi</label>
-                  <div style={{display:"flex",gap:4,alignItems:"center"}}><input type="color" value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/><input value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
+              <div style={{marginBottom:8}}>
+                <label style={lblStyle}>Yazı Rengi</label>
+                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                  <input type="color" value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
+                  <input value={sel.color||"#000000"} onChange={e=>updateEl(sel.id,{color:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
                 </div>
-                <div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2}}>Arkaplan</label>
-                  <div style={{display:"flex",gap:4,alignItems:"center"}}><input type="color" value={sel.bg||"#ffffff"} onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/><input value={sel.bg||""} placeholder="şeffaf" onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/></div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <label style={lblStyle}>Arkaplan</label>
+                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                  <input type="color" value={sel.bg||"#ffffff"} onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{width:32,height:28,border:"1px solid #2d3561",borderRadius:6,cursor:"pointer",padding:2}}/>
+                  <input value={sel.bg||""} placeholder="şeffaf" onChange={e=>updateEl(sel.id,{bg:e.target.value})} style={{flex:1,padding:"5px 6px",border:"1px solid #2d3561",borderRadius:6,fontSize:11,fontFamily:"monospace",background:"#1a1a2e",color:"#e2e8f0"}}/>
                 </div>
-              </Row>
-              {(sel.type==="text"||sel.type==="urunlist")&&(
+              </div>
+              {(sel.type==="text"||sel.type==="urunlist") && (
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
                   <span style={{fontSize:12,color:"#e2e8f0"}}>Kenarlık</span>
-                  <div onClick={()=>updateEl(sel.id,{border:!sel.border})} style={{width:36,height:20,borderRadius:10,background:sel.border?"#22c55e":"#2d3561",cursor:"pointer",position:"relative"}}><div style={{position:"absolute",top:2,left:sel.border?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.15s"}}/></div>
+                  <div onClick={()=>updateEl(sel.id,{border:!sel.border})} style={{width:36,height:20,borderRadius:10,background:sel.border?"#22c55e":"#2d3561",cursor:"pointer",position:"relative"}}>
+                    <div style={{position:"absolute",top:2,left:sel.border?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.15s"}}/>
+                  </div>
                 </div>
               )}
-              {sel.type==="rect"&&<div><label style={{fontSize:10,color:"#94a3b8",display:"block",marginBottom:2,marginTop:6}}>Kenarlık Kalınlığı</label><Inp field="borderWidth" type="number" min={0} max={10}/></div>}
+              {sel.type==="rect" && (
+                <div style={{marginTop:8}}>
+                  <label style={lblStyle}>Kenarlık Kalınlığı</label>
+                  <input type="number" min={0} max={10} value={sel.borderWidth??1} onChange={e=>updateEl(sel.id,{borderWidth:Number(e.target.value)})} style={inpStyle}/>
+                </div>
+              )}
             </div>
           )}
 
-          {sel.type==="logo"&&(
-            <div style={{background:"#0f3460",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+          {/* Logo yükleme */}
+          {sel.type==="logo" && (
+            <div style={sectionStyle}>
               <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",marginBottom:8,textTransform:"uppercase"}}>🖼️ Logo</div>
               <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px",background:"#1a1a2e",border:"2px dashed #2d3561",borderRadius:8,cursor:"pointer"}}>
                 {sel.logoData ? <img src={sel.logoData} style={{height:30,maxWidth:80,objectFit:"contain"}}/> : <span style={{fontSize:11,color:"#94a3b8"}}>📁 Logo Yükle</span>}
