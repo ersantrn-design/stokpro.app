@@ -4919,12 +4919,16 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [labelSettings, setLabelSettings] = useState({
     width: 100, height: 70,
     firmaAdi: "FİRMA ADI",
+    logoUrl: "",
+    showLogo: false,
     showFirmaAdi: true, showMusteri: true, showAdres: true,
     showSevkNo: true, showKoliNo: true, showTarih: true,
-    showBarkod: true, showUrunler: true, maxUrun: 5,
+    showBarkod: true, showUrunler: true, maxUrun: 8,
     fontSize: 8, fontSizeBaslik: 11,
   });
 
@@ -4941,15 +4945,31 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
   };
 
   const newSevkiyat = () => {
+    setEditId(null);
     setForm({ no: genNo(), musteri: "", adres: "", tel: "", tarih: new Date().toISOString().split("T")[0], tip: "serbest", aciklama: "" });
-    const firstKoli = { id: 1, no: "K-001", urunler: [] };
-    setKoliler([firstKoli]);
+    setKoliler([{ id: 1, no: "K-001", urunler: [] }]);
     setActiveKoli(1);
     setView("new");
   };
 
+  const editSevkiyat = (s) => {
+    setEditId(s.id);
+    setForm({ no: s.no, musteri: s.musteri, adres: s.adres||"", tel: s.tel||"", tarih: s.tarih||new Date().toISOString().split("T")[0], tip: s.tip||"serbest", aciklama: s.aciklama||"" });
+    setKoliler(s.koliler || [{ id: 1, no: "K-001", urunler: [] }]);
+    setActiveKoli((s.koliler||[{ id: 1 }])[0]?.id || 1);
+    setView("new");
+  };
+
+  const deleteSevkiyat = async (id) => {
+    const { error } = await supabase.from("sevkiyatlar").delete().eq("id", id);
+    if (error) return notify("Hata: " + error.message);
+    setSevkiyatlar(prev => prev.filter(s => s.id !== id));
+    setDeleteConfirm(null);
+    notify("Sevkiyat silindi");
+  };
+
   const addKoli = () => {
-    const newId = koliler.length + 1;
+    const newId = Math.max(...koliler.map(k => k.id), 0) + 1;
     setKoliler(prev => [...prev, { id: newId, no: `K-${String(newId).padStart(3,"0")}`, urunler: [] }]);
     setActiveKoli(newId);
   };
@@ -4967,8 +4987,7 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
       if (existing) return { ...k, urunler: k.urunler.map(u => u.productId === product.id ? { ...u, qty: u.qty + qty } : u) };
       return { ...k, urunler: [...k.urunler, { productId: product.id, productName: product.name, sku: product.sku || "", barcode: product.barcode || "", qty }] };
     }));
-    setBarcodeInput("");
-    setSearchQ("");
+    setBarcodeInput(""); setSearchQ("");
   };
 
   const updateQty = (koliId, productId, qty) => {
@@ -4995,25 +5014,53 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
     if (totalUrun() === 0) return notify("En az 1 ürün ekleyin");
     setSubmitting(true);
     const row = { no: form.no, musteri: form.musteri, adres: form.adres, tel: form.tel, tarih: form.tarih, aciklama: form.aciklama, durum: "hazırlanıyor", koliler, toplam_koli: koliler.length, toplam_urun: totalUrun(), created_by: user.username };
-    const { data, error } = await supabase.from("sevkiyatlar").insert([row]).select().single();
+    let error;
+    if (editId) {
+      const res = await supabase.from("sevkiyatlar").update(row).eq("id", editId).select().single();
+      error = res.error;
+      if (!error) { setSevkiyatlar(prev => prev.map(s => s.id === editId ? res.data : s)); notify("Sevkiyat güncellendi"); }
+    } else {
+      const res = await supabase.from("sevkiyatlar").insert([row]).select().single();
+      error = res.error;
+      if (!error) { setSevkiyatlar(prev => [res.data, ...prev]); notify(`Sevkiyat kaydedildi (${koliler.length} koli)`); }
+    }
     if (error) { notify("Hata: " + error.message); setSubmitting(false); return; }
-    setSevkiyatlar(prev => [data, ...prev]);
-    notify(`Sevkiyat kaydedildi (${koliler.length} koli, ${totalUrun()} ürün)`);
-    setView("list");
-    setSubmitting(false);
+    setView("list"); setSubmitting(false);
+  };
+
+  // Logo upload handler
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLabelSettings(p => ({...p, logoUrl: ev.target.result, showLogo: true}));
+    reader.readAsDataURL(file);
   };
 
   const generateLabelHTML = (koli, sevk, koliIdx, toplamKoli) => {
     const ls = labelSettings;
-    return `<div style="width:${ls.width}mm;height:${ls.height}mm;border:1.5px solid #000;padding:3mm;box-sizing:border-box;font-family:Arial,sans-serif;font-size:${ls.fontSize}pt;page-break-after:always;background:white;display:flex;flex-direction:column;gap:1.5mm;">
-      ${ls.showFirmaAdi ? `<div style="font-size:${ls.fontSizeBaslik}pt;font-weight:bold;border-bottom:1px solid #000;padding-bottom:1mm;">${ls.firmaAdi}</div>` : ""}
-      <div style="display:flex;justify-content:space-between;">
-        <div>${ls.showMusteri ? `<b>${sevk.musteri}</b>` : ""}${ls.showAdres && sevk.adres ? `<br/><span style="font-size:${ls.fontSize-1}pt;color:#444;">${sevk.adres}</span>` : ""}</div>
-        <div style="text-align:right;">${ls.showSevkNo ? `<div>${sevk.no}</div>` : ""}${ls.showTarih ? `<div>${fmt(sevk.tarih)}</div>` : ""}</div>
+    return `<div style="width:${ls.width}mm;height:${ls.height}mm;border:1.5px solid #000;padding:3mm;box-sizing:border-box;font-family:Arial,sans-serif;font-size:${ls.fontSize}pt;page-break-after:always;background:white;display:flex;flex-direction:column;gap:1mm;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #000;padding-bottom:1.5mm;margin-bottom:1mm;">
+        <div style="display:flex;align-items:center;gap:2mm;">
+          ${ls.showLogo && ls.logoUrl ? `<img src="${ls.logoUrl}" style="height:8mm;max-width:20mm;object-fit:contain;" />` : ""}
+          ${ls.showFirmaAdi ? `<span style="font-size:${ls.fontSizeBaslik}pt;font-weight:bold;">${ls.firmaAdi}</span>` : ""}
+        </div>
+        <div style="text-align:right;font-size:${ls.fontSize-1}pt;">
+          ${ls.showSevkNo ? `<div><b>${sevk.no}</b></div>` : ""}
+          ${ls.showTarih ? `<div>${fmt(sevk.tarih)}</div>` : ""}
+        </div>
       </div>
+      ${ls.showMusteri || ls.showAdres ? `<div style="font-size:${ls.fontSize}pt;margin-bottom:1mm;">${ls.showMusteri ? `<div><b>${sevk.musteri}</b></div>` : ""}${ls.showAdres && sevk.adres ? `<div style="color:#444;font-size:${ls.fontSize-1}pt;">${sevk.adres}</div>` : ""}</div>` : ""}
       ${ls.showKoliNo ? `<div style="background:#000;color:#fff;padding:1.5mm 2mm;font-weight:bold;font-size:${ls.fontSizeBaslik+1}pt;text-align:center;letter-spacing:0.05em;">KOLİ ${koliIdx} / ${toplamKoli}</div>` : ""}
-      ${ls.showUrunler ? `<table style="width:100%;border-collapse:collapse;font-size:${ls.fontSize-1}pt;flex:1;"><tr style="border-bottom:1px solid #ccc;"><th style="text-align:left;padding:0.5mm 0;">Ürün</th><th style="text-align:right;padding:0.5mm 0;">Adet</th></tr>${koli.urunler.slice(0,ls.maxUrun).map(u=>`<tr><td style="padding:0.5mm 0;">${u.productName.substring(0,28)}${u.productName.length>28?"…":""}</td><td style="text-align:right;font-weight:bold;">${u.qty}</td></tr>`).join("")}${koli.urunler.length>ls.maxUrun?`<tr><td colspan="2" style="color:#666;">+${koli.urunler.length-ls.maxUrun} ürün daha</td></tr>`:""}</table>` : ""}
-      ${ls.showBarkod ? `<div style="text-align:center;margin-top:auto;"><svg xmlns="http://www.w3.org/2000/svg" width="170" height="36"><rect width="170" height="36" fill="white"/>${Array.from({length:85},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="28" fill="black"/>`).join("")}<text x="85" y="35" text-anchor="middle" font-size="7" font-family="monospace">${sevk.no}-K${String(koliIdx).padStart(3,"0")}</text></svg></div>` : ""}
+      ${ls.showUrunler ? `<div style="flex:1;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:${ls.fontSize-1}pt;">
+          <tr style="border-bottom:1px solid #ddd;"><th style="text-align:left;padding:0.5mm 1mm;">Ürün</th><th style="text-align:center;padding:0.5mm 1mm;width:12mm;">SKU</th><th style="text-align:right;padding:0.5mm 1mm;width:8mm;">Adet</th></tr>
+          ${koli.urunler.slice(0,ls.maxUrun).map(u=>`<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:0.5mm 1mm;">${u.productName.substring(0,22)}${u.productName.length>22?"…":""}</td><td style="padding:0.5mm 1mm;text-align:center;font-size:${ls.fontSize-2}pt;color:#666;">${u.sku||"-"}</td><td style="padding:0.5mm 1mm;text-align:right;font-weight:bold;">${u.qty}</td></tr>`).join("")}
+          ${koli.urunler.length>ls.maxUrun?`<tr><td colspan="3" style="padding:0.5mm 1mm;color:#888;font-size:${ls.fontSize-2}pt;">+${koli.urunler.length-ls.maxUrun} ürün daha...</td></tr>`:""}
+          <tr style="border-top:1px solid #000;font-weight:bold;"><td colspan="2" style="padding:0.5mm 1mm;">TOPLAM</td><td style="text-align:right;padding:0.5mm 1mm;">${koli.urunler.reduce((s,u)=>s+u.qty,0)}</td></tr>
+        </table>
+      </div>` : ""}
+      ${ls.showBarkod ? `<div style="text-align:center;margin-top:auto;padding-top:1mm;"><svg xmlns="http://www.w3.org/2000/svg" width="160" height="32"><rect width="160" height="32" fill="white"/>${Array.from({length:80},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="24" fill="black"/>`).join("")}<text x="80" y="31" text-anchor="middle" font-size="6" font-family="monospace">${sevk.no}-K${String(koliIdx).padStart(3,"0")}</text></svg></div>` : ""}
     </div>`;
   };
 
@@ -5026,8 +5073,7 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
   const printPackingList = (sevkData) => {
     const allKoliler = sevkData.koliler || [];
     const html = `<!DOCTYPE html><html><head><style>@page{margin:12mm;}body{font-family:Arial,sans-serif;font-size:10pt;}.header{display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px;}.koli-block{border:1px solid #ccc;margin-bottom:10px;page-break-inside:avoid;}.koli-header{background:#000;color:#fff;padding:5px 10px;font-weight:bold;display:flex;justify-content:space-between;}table{width:100%;border-collapse:collapse;}th{background:#f0f0f0;text-align:left;padding:4px 8px;border-bottom:1px solid #ccc;font-size:9pt;}td{padding:3px 8px;border-bottom:1px solid #eee;font-size:9pt;}.total{font-weight:bold;background:#f9f9f9;}</style></head><body>
-      <div class="header"><div><h2 style="margin:0;">📦 PACKING LIST</h2><h3 style="margin:4px 0 0;">${sevkData.no}</h3></div><div style="text-align:right;"><div><b>Tarih:</b> ${fmt(sevkData.tarih)}</div><div><b>Müşteri:</b> ${sevkData.musteri}</div><div><b>${allKoliler.length} Koli / ${sevkData.toplam_urun||0} Ürün</b></div></div></div>
-      ${sevkData.adres ? `<div style="margin-bottom:10px;font-size:9pt;color:#555;"><b>Adres:</b> ${sevkData.adres}</div>` : ""}
+      <div class="header"><div>${labelSettings.showLogo && labelSettings.logoUrl ? `<img src="${labelSettings.logoUrl}" style="height:16mm;max-width:40mm;object-fit:contain;margin-bottom:4px;display:block;" />` : ""}<h2 style="margin:0;">📦 PACKING LIST</h2><h3 style="margin:4px 0 0;">${sevkData.no}</h3></div><div style="text-align:right;"><div><b>Tarih:</b> ${fmt(sevkData.tarih)}</div><div><b>Müşteri:</b> ${sevkData.musteri}</div>${sevkData.adres?`<div style="font-size:9pt;color:#555;">${sevkData.adres}</div>`:""}<div style="margin-top:4px;"><b>${allKoliler.length} Koli / ${sevkData.toplam_urun||0} Ürün</b></div></div></div>
       ${allKoliler.map((koli,idx)=>`<div class="koli-block"><div class="koli-header"><span>KOLİ ${idx+1} / ${allKoliler.length} — ${koli.no}</span><span>${koli.urunler.reduce((s,u)=>s+u.qty,0)} adet</span></div><table><tr><th>#</th><th>Ürün Adı</th><th>SKU</th><th>Barkod</th><th>Adet</th></tr>${koli.urunler.map((u,i)=>`<tr><td>${i+1}</td><td>${u.productName}</td><td>${u.sku||"-"}</td><td>${u.barcode||"-"}</td><td><b>${u.qty}</b></td></tr>`).join("")}<tr class="total"><td colspan="4">TOPLAM</td><td>${koli.urunler.reduce((s,u)=>s+u.qty,0)}</td></tr></table></div>`).join("")}
       <div style="margin-top:16px;border-top:1px solid #ccc;padding-top:6px;font-size:8pt;color:#888;">StokPro • ${new Date().toLocaleString("tr-TR")} • Hazırlayan: ${sevkData.created_by||"-"}</div>
     </body></html>`;
@@ -5041,21 +5087,56 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
   if (view === "label-designer") {
     const ls = labelSettings;
     const prev_sevk = { no: "SVK-001234", musteri: "Örnek Müşteri A.Ş.", adres: "Atatürk Cad. No:5 İstanbul", tarih: new Date().toISOString() };
-    const prev_koli = { id:1, no:"K-001", urunler:[{productName:"Ürün Adı Örnek 1",sku:"SKU001",barcode:"1234567890",qty:12},{productName:"Ürün Adı Örnek 2",sku:"SKU002",barcode:"0987654321",qty:5},{productName:"Ürün Adı Örnek 3",sku:"SKU003",barcode:"1122334455",qty:8}]};
-    const Tog = ({lbl, k}) => <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:13}}>{lbl}</span><div onClick={()=>setLabelSettings(p=>({...p,[k]:!p[k]}))} style={{width:36,height:20,borderRadius:10,background:ls[k]?"#22c55e":"#e7e5e4",cursor:"pointer",position:"relative",transition:"background 0.2s"}}><div style={{position:"absolute",top:2,left:ls[k]?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/></div></div>;
-    const Inp = ({lbl, k, type="text", min, max}) => <div style={{marginBottom:12}}><label style={{display:"block",fontSize:11,fontWeight:600,color:"#78716c",marginBottom:4}}>{lbl}</label><input type={type} value={ls[k]} min={min} max={max} onChange={e=>setLabelSettings(p=>({...p,[k]:type==="number"?Number(e.target.value):e.target.value}))} style={{width:"100%",padding:"6px 10px",border:"1px solid #e7e5e4",borderRadius:6,fontSize:13,boxSizing:"border-box"}}/></div>;
+    const prev_koli = { id:1, no:"K-001", urunler:[{productName:"Ürün Adı Örnek 1",sku:"SKU001",barcode:"1234567890",qty:12},{productName:"Ürün Adı Örnek 2",sku:"SKU002",barcode:"0987654321",qty:5},{productName:"Ürün Adı Örnek 3",sku:"SKU003",barcode:"1122334455",qty:8},{productName:"Ürün Adı Örnek 4",sku:"SKU004",barcode:"5566778899",qty:3}]};
+    const Tog = ({lbl, k}) => (
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:13}}>{lbl}</span>
+        <div onClick={()=>setLabelSettings(p=>({...p,[k]:!p[k]}))} style={{width:36,height:20,borderRadius:10,background:ls[k]?"#22c55e":"#e7e5e4",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+          <div style={{position:"absolute",top:2,left:ls[k]?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+        </div>
+      </div>
+    );
+    const Inp = ({lbl, k, type="text", min, max}) => (
+      <div style={{marginBottom:12}}>
+        <label style={{display:"block",fontSize:11,fontWeight:600,color:"#78716c",marginBottom:4}}>{lbl}</label>
+        <input type={type} value={ls[k]} min={min} max={max} onChange={e=>setLabelSettings(p=>({...p,[k]:type==="number"?Number(e.target.value):e.target.value}))} style={{width:"100%",padding:"6px 10px",border:"1px solid #e7e5e4",borderRadius:6,fontSize:13,boxSizing:"border-box"}}/>
+      </div>
+    );
     return (
       <div style={{display:"flex",height:"calc(100vh - 60px)",overflow:"hidden",background:"#f5f5f4"}}>
-        <div style={{width:280,background:"#fff",borderRight:"1px solid #e7e5e4",overflowY:"auto",padding:20,flexShrink:0}}>
+        <div style={{width:290,background:"#fff",borderRight:"1px solid #e7e5e4",overflowY:"auto",padding:20,flexShrink:0}}>
           <button onClick={()=>setView("list")} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",color:"#78716c",fontSize:13,marginBottom:16,padding:0}}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg> Geri
           </button>
           <h3 style={{fontSize:15,fontWeight:700,margin:"0 0 16px"}}>🎨 Etiket Tasarımcısı</h3>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <Inp lbl="Genişlik (mm)" k="width" type="number" min={40} max={200}/>
             <Inp lbl="Yükseklik (mm)" k="height" type="number" min={30} max={200}/>
           </div>
+
+          {/* Logo bölümü */}
+          <div style={{background:"#f9f8f7",borderRadius:8,padding:"12px 14px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#78716c",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}}>Logo</div>
+            <Tog lbl="Logo Göster" k="showLogo"/>
+            {ls.showLogo && (
+              <div>
+                <label style={{display:"block",width:"100%",padding:"8px",background:"#fff",border:"2px dashed #e7e5e4",borderRadius:8,textAlign:"center",cursor:"pointer",fontSize:12,color:"#78716c"}}>
+                  {ls.logoUrl ? "✅ Logo yüklendi — değiştirmek için tıkla" : "📁 Logo yükle (PNG/JPG)"}
+                  <input type="file" accept="image/*" onChange={handleLogoUpload} style={{display:"none"}}/>
+                </label>
+                {ls.logoUrl && (
+                  <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+                    <img src={ls.logoUrl} style={{height:32,maxWidth:80,objectFit:"contain",border:"1px solid #e7e5e4",borderRadius:4,padding:2}}/>
+                    <button onClick={()=>setLabelSettings(p=>({...p,logoUrl:"",showLogo:false}))} style={{fontSize:11,color:"#dc2626",background:"none",border:"none",cursor:"pointer"}}>Sil</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <Inp lbl="Firma Adı" k="firmaAdi"/>
+
           <div style={{background:"#f9f8f7",borderRadius:8,padding:"12px 14px",marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:700,color:"#78716c",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}}>Gösterilecek Alanlar</div>
             <Tog lbl="Firma Adı" k="showFirmaAdi"/>
@@ -5067,6 +5148,7 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
             <Tog lbl="Ürün Listesi" k="showUrunler"/>
             <Tog lbl="Barkod" k="showBarkod"/>
           </div>
+
           {ls.showUrunler && <Inp lbl="Maks. Ürün Satırı" k="maxUrun" type="number" min={1} max={20}/>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <Inp lbl="Font (pt)" k="fontSize" type="number" min={6} max={14}/>
@@ -5085,7 +5167,7 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
     );
   }
 
-  // ─── YENİ SEVKİYAT ────────────────────────────────────────────────────────
+  // ─── YENİ / DÜZENLE SEVKİYAT ──────────────────────────────────────────────
   if (view === "new") {
     const activeKoliData = koliler.find(k => k.id === activeKoli);
     return (
@@ -5096,17 +5178,16 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg> Sevkiyatlar
             </button>
             <span style={{color:"#d6d3d1"}}>/</span>
-            <h2 style={{fontSize:18,fontWeight:700,margin:0}}>Yeni Sevkiyat</h2>
+            <h2 style={{fontSize:18,fontWeight:700,margin:0}}>{editId ? "Sevkiyat Düzenle" : "Yeni Sevkiyat"}</h2>
           </div>
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setView("label-designer")} style={{padding:"8px 14px",background:"#f5f5f4",border:"1px solid #e7e5e4",borderRadius:8,fontSize:13,cursor:"pointer"}}>🎨 Etiket Tasarla</button>
             <button onClick={saveSevkiyat} disabled={submitting} style={{padding:"8px 16px",background:"#18181b",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
-              {submitting?"Kaydediliyor...":"💾 Kaydet"}
+              {submitting?"Kaydediliyor...": editId ? "✏️ Güncelle" : "💾 Kaydet"}
             </button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr",gap:20}}>
-          {/* Bilgiler */}
           <div>
             <div style={{background:"#fff",borderRadius:12,padding:20,border:"1px solid #e7e5e4",marginBottom:16}}>
               <div style={{fontSize:11,fontWeight:700,color:"#78716c",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.05em"}}>Sevkiyat Bilgileri</div>
@@ -5137,20 +5218,17 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
               </div>
             </div>
           </div>
-          {/* Koliler */}
           <div style={{background:"#fff",borderRadius:12,border:"1px solid #e7e5e4",overflow:"hidden"}}>
-            {/* Koli sekmeleri */}
             <div style={{borderBottom:"1px solid #e7e5e4",padding:"12px 16px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
               {koliler.map(k=>(
                 <div key={k.id} onClick={()=>setActiveKoli(k.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background:activeKoli===k.id?"#18181b":"#f5f5f4",color:activeKoli===k.id?"#fff":"#57534e",border:"1px solid "+(activeKoli===k.id?"#18181b":"#e7e5e4")}}>
                   📦 {k.no}
                   <span style={{background:activeKoli===k.id?"#ffffff22":"#e7e5e4",borderRadius:99,padding:"1px 5px",fontSize:11}}>{k.urunler.reduce((s,u)=>s+u.qty,0)}</span>
-                  {koliler.length>1&&<span onClick={e=>{e.stopPropagation();removeKoli(k.id);}} style={{fontSize:12,opacity:0.6}}>×</span>}
+                  {koliler.length>1&&<span onClick={e=>{e.stopPropagation();removeKoli(k.id);}} style={{fontSize:13,opacity:0.5,marginLeft:2,fontWeight:400}}>×</span>}
                 </div>
               ))}
               <button onClick={addKoli} style={{padding:"5px 10px",background:"#f0fdf4",border:"1px dashed #22c55e",borderRadius:8,fontSize:12,color:"#16a34a",cursor:"pointer",fontWeight:600}}>+ Koli Ekle</button>
             </div>
-            {/* Barkod / Arama */}
             <div style={{padding:"12px 16px",borderBottom:"1px solid #f5f5f4",display:"flex",gap:8}}>
               <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={handleBarcodeKey}
                 placeholder="📷 Barkod okut → Enter" autoFocus
@@ -5170,7 +5248,6 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
                 )}
               </div>
             </div>
-            {/* Ürün listesi */}
             <div style={{padding:16,minHeight:200}}>
               {!activeKoliData||activeKoliData.urunler.length===0?(
                 <div style={{textAlign:"center",padding:"32px 0",color:"#a8a29e",fontSize:13}}>📦 Bu koliye ürün eklenmedi<br/><small>Barkod okutun veya ürün arayın</small></div>
@@ -5203,6 +5280,21 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
   // ─── LİSTE ────────────────────────────────────────────────────────────────
   return (
     <div style={{padding:24}}>
+      {/* Silme onay modalı */}
+      {deleteConfirm && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,maxWidth:380,width:"90%",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+            <div style={{fontSize:32,marginBottom:12,textAlign:"center"}}>🗑️</div>
+            <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px",textAlign:"center"}}>Sevkiyatı Sil</h3>
+            <p style={{fontSize:13,color:"#78716c",textAlign:"center",margin:"0 0 20px"}}><b>{deleteConfirm.no}</b> numaralı sevkiyat kalıcı olarak silinecek.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setDeleteConfirm(null)} style={{flex:1,padding:"10px",background:"#f5f5f4",border:"1px solid #e7e5e4",borderRadius:8,fontSize:13,cursor:"pointer"}}>İptal</button>
+              <button onClick={()=>deleteSevkiyat(deleteConfirm.id)} style={{flex:1,padding:"10px",background:"#dc2626",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>Sil</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24}}>
         <div>
           <h1 style={{fontSize:21,fontWeight:700,margin:0,letterSpacing:"-0.03em"}}>Sevkiyat</h1>
@@ -5232,19 +5324,23 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
           </div>
         ):(
           <table style={{width:"100%",borderCollapse:"collapse"}}>
-            <thead><tr style={{borderBottom:"1px solid #f5f5f4"}}>{["Sevkiyat No","Müşteri","Tarih","Koli","Ürün","Durum",""].map(h=><th key={h} style={{padding:"10px 16px",textAlign:"left",fontSize:11,color:"#a8a29e",fontWeight:600,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{borderBottom:"1px solid #f5f5f4"}}>{["Sevkiyat No","Müşteri","Tarih","Koli","Ürün","Durum","İşlemler"].map(h=><th key={h} style={{padding:"10px 16px",textAlign:"left",fontSize:11,color:"#a8a29e",fontWeight:600,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
             <tbody>{sevkiyatlar.map(s=>(
               <tr key={s.id} style={{borderBottom:"1px solid #f5f5f4"}} onMouseEnter={e=>e.currentTarget.style.background="#fafaf9"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <td style={{padding:"12px 16px",fontSize:13,fontWeight:600,fontFamily:"monospace"}}>{s.no}</td>
-                <td style={{padding:"12px 16px",fontSize:13}}>{s.musteri}</td>
+                <td style={{padding:"12px 16px",fontSize:13}}><div>{s.musteri}</div>{s.adres&&<div style={{fontSize:11,color:"#a8a29e"}}>{s.adres.substring(0,30)}{s.adres.length>30?"...":""}</div>}</td>
                 <td style={{padding:"12px 16px",fontSize:12,color:"#78716c"}}>{fmt(s.tarih)}</td>
-                <td style={{padding:"12px 16px",fontSize:13,textAlign:"center"}}>{s.toplam_koli||0}</td>
+                <td style={{padding:"12px 16px",fontSize:13,textAlign:"center",fontWeight:600}}>{s.toplam_koli||0}</td>
                 <td style={{padding:"12px 16px",fontSize:13,textAlign:"center"}}>{s.toplam_urun||0}</td>
-                <td style={{padding:"12px 16px"}}><span style={{padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:(durumRenk[s.durum]||"#78716c")+"22",color:durumRenk[s.durum]||"#78716c"}}>{s.durum}</span></td>
                 <td style={{padding:"12px 16px"}}>
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>printPackingList(s)} style={{padding:"5px 10px",background:"#f5f5f4",border:"1px solid #e7e5e4",borderRadius:6,fontSize:12,cursor:"pointer"}}>📋 Packing List</button>
-                    <button onClick={()=>printLabels(s)} style={{padding:"5px 10px",background:"#f5f5f4",border:"1px solid #e7e5e4",borderRadius:6,fontSize:12,cursor:"pointer"}}>🏷️ Etiket</button>
+                  <span style={{padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:(durumRenk[s.durum]||"#78716c")+"22",color:durumRenk[s.durum]||"#78716c"}}>{s.durum}</span>
+                </td>
+                <td style={{padding:"12px 16px"}}>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    <button onClick={()=>printPackingList(s)} title="Packing List" style={{padding:"5px 9px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6,fontSize:12,cursor:"pointer",color:"#0369a1"}}>📋</button>
+                    <button onClick={()=>printLabels(s)} title="Etiket Yazdır" style={{padding:"5px 9px",background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:6,fontSize:12,cursor:"pointer",color:"#16a34a"}}>🏷️</button>
+                    <button onClick={()=>editSevkiyat(s)} title="Düzenle" style={{padding:"5px 9px",background:"#fefce8",border:"1px solid #fde68a",borderRadius:6,fontSize:12,cursor:"pointer",color:"#ca8a04"}}>✏️</button>
+                    <button onClick={()=>setDeleteConfirm(s)} title="Sil" style={{padding:"5px 9px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,fontSize:12,cursor:"pointer",color:"#dc2626"}}>🗑️</button>
                   </div>
                 </td>
               </tr>
