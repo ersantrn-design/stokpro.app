@@ -5039,34 +5039,52 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
 
   const generateLabelHTML = (koli, sevk, koliIdx, toplamKoli) => {
     const ls = labelSettings;
-    return `<div style="width:${ls.width}mm;height:${ls.height}mm;border:1.5px solid #000;padding:3mm;box-sizing:border-box;font-family:Arial,sans-serif;font-size:${ls.fontSize}pt;page-break-after:always;background:white;display:flex;flex-direction:column;gap:1mm;overflow:hidden;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #000;padding-bottom:1.5mm;margin-bottom:1mm;">
-        <div style="display:flex;align-items:center;gap:2mm;">
-          ${ls.showLogo && ls.logoUrl ? `<img src="${ls.logoUrl}" style="height:8mm;max-width:20mm;object-fit:contain;" />` : ""}
-          ${ls.showFirmaAdi ? `<span style="font-size:${ls.fontSizeBaslik}pt;font-weight:bold;">${ls.firmaAdi}</span>` : ""}
+    const urunSatirlar = koli.urunler.slice(0, ls.maxUrun).map(u =>
+      `<tr>
+        <td style="display:table-cell;padding:1px 2px;border-bottom:1px solid #eee;font-size:${ls.fontSize - 1}pt;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${u.productName.substring(0, 24)}${u.productName.length > 24 ? "…" : ""}</td>
+        <td style="display:table-cell;padding:1px 2px;border-bottom:1px solid #eee;font-size:${ls.fontSize - 2}pt;color:#555;white-space:nowrap;width:14mm;text-align:center;">${u.sku || "-"}</td>
+        <td style="display:table-cell;padding:1px 2px;border-bottom:1px solid #eee;font-weight:bold;white-space:nowrap;width:8mm;text-align:right;">${u.qty}</td>
+      </tr>`
+    ).join("");
+    const fazlaStr = koli.urunler.length > ls.maxUrun
+      ? `<tr><td colspan="3" style="display:table-cell;padding:1px 2px;color:#999;font-size:${ls.fontSize - 2}pt;">+${koli.urunler.length - ls.maxUrun} ürün daha…</td></tr>`
+      : "";
+    const toplamStr = `<tr style="border-top:1.5px solid #000;">
+      <td colspan="2" style="display:table-cell;padding:1px 2px;font-weight:bold;font-size:${ls.fontSize - 1}pt;">TOPLAM</td>
+      <td style="display:table-cell;padding:1px 2px;font-weight:bold;text-align:right;">${koli.urunler.reduce((s, u) => s + u.qty, 0)}</td>
+    </tr>`;
+    return `<div style="width:${ls.width}mm;height:${ls.height}mm;border:1.5px solid #000;padding:3mm;box-sizing:border-box;font-family:Arial,sans-serif;font-size:${ls.fontSize}pt;page-break-after:always;background:white;display:block;overflow:hidden;">
+      <div style="display:table;width:100%;border-bottom:1px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;">
+        <div style="display:table-cell;vertical-align:middle;">
+          ${ls.showLogo && ls.logoUrl ? `<img src="${ls.logoUrl}" style="height:7mm;max-width:18mm;object-fit:contain;vertical-align:middle;margin-right:1mm;" />` : ""}
+          ${ls.showFirmaAdi ? `<span style="font-size:${ls.fontSizeBaslik}pt;font-weight:bold;vertical-align:middle;">${ls.firmaAdi}</span>` : ""}
         </div>
-        <div style="text-align:right;font-size:${ls.fontSize-1}pt;">
-          ${ls.showSevkNo ? `<div><b>${sevk.no}</b></div>` : ""}
-          ${ls.showTarih ? `<div>${fmt(sevk.tarih)}</div>` : ""}
+        <div style="display:table-cell;text-align:right;vertical-align:middle;font-size:${ls.fontSize - 1}pt;">
+          ${ls.showSevkNo ? `<div style="display:block;font-weight:bold;">${sevk.no}</div>` : ""}
+          ${ls.showTarih ? `<div style="display:block;">${fmt(sevk.tarih)}</div>` : ""}
         </div>
       </div>
-      ${ls.showMusteri || ls.showAdres ? `<div style="font-size:${ls.fontSize}pt;margin-bottom:1mm;">${ls.showMusteri ? `<div><b>${sevk.musteri}</b></div>` : ""}${ls.showAdres && sevk.adres ? `<div style="color:#444;font-size:${ls.fontSize-1}pt;">${sevk.adres}</div>` : ""}</div>` : ""}
-      ${ls.showKoliNo ? `<div style="background:#000;color:#fff;padding:1.5mm 2mm;font-weight:bold;font-size:${ls.fontSizeBaslik+1}pt;text-align:center;letter-spacing:0.05em;">KOLİ ${koliIdx} / ${toplamKoli}</div>` : ""}
-      ${ls.showUrunler ? `<div style="flex:1;overflow:hidden;">
-        <table style="width:100%;border-collapse:collapse;font-size:${ls.fontSize-1}pt;">
-          <tr style="border-bottom:1px solid #ddd;"><th style="text-align:left;padding:0.5mm 1mm;">Ürün</th><th style="text-align:center;padding:0.5mm 1mm;width:12mm;">SKU</th><th style="text-align:right;padding:0.5mm 1mm;width:8mm;">Adet</th></tr>
-          ${koli.urunler.slice(0,ls.maxUrun).map(u=>`<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:0.5mm 1mm;">${u.productName.substring(0,22)}${u.productName.length>22?"…":""}</td><td style="padding:0.5mm 1mm;text-align:center;font-size:${ls.fontSize-2}pt;color:#666;">${u.sku||"-"}</td><td style="padding:0.5mm 1mm;text-align:right;font-weight:bold;">${u.qty}</td></tr>`).join("")}
-          ${koli.urunler.length>ls.maxUrun?`<tr><td colspan="3" style="padding:0.5mm 1mm;color:#888;font-size:${ls.fontSize-2}pt;">+${koli.urunler.length-ls.maxUrun} ürün daha...</td></tr>`:""}
-          <tr style="border-top:1px solid #000;font-weight:bold;"><td colspan="2" style="padding:0.5mm 1mm;">TOPLAM</td><td style="text-align:right;padding:0.5mm 1mm;">${koli.urunler.reduce((s,u)=>s+u.qty,0)}</td></tr>
-        </table>
+      ${ls.showMusteri || ls.showAdres ? `<div style="display:block;margin-bottom:1.5mm;">
+        ${ls.showMusteri ? `<div style="display:block;font-weight:bold;font-size:${ls.fontSize}pt;">${sevk.musteri}</div>` : ""}
+        ${ls.showAdres && sevk.adres ? `<div style="display:block;color:#444;font-size:${ls.fontSize - 1}pt;">${sevk.adres}</div>` : ""}
       </div>` : ""}
-      ${ls.showBarkod ? `<div style="text-align:center;margin-top:auto;padding-top:1mm;"><svg xmlns="http://www.w3.org/2000/svg" width="160" height="32"><rect width="160" height="32" fill="white"/>${Array.from({length:80},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="24" fill="black"/>`).join("")}<text x="80" y="31" text-anchor="middle" font-size="6" font-family="monospace">${sevk.no}-K${String(koliIdx).padStart(3,"0")}</text></svg></div>` : ""}
+      ${ls.showKoliNo ? `<div style="display:block;background:#000;color:#fff;padding:1mm 2mm;font-weight:bold;font-size:${ls.fontSizeBaslik}pt;text-align:center;margin-bottom:1.5mm;">KOLİ ${koliIdx} / ${toplamKoli}</div>` : ""}
+      ${ls.showUrunler ? `<table style="display:table;width:100%;border-collapse:collapse;font-size:${ls.fontSize - 1}pt;table-layout:fixed;">
+        <colgroup><col style="width:auto;"/><col style="width:14mm;"/><col style="width:8mm;"/></colgroup>
+        <thead><tr style="border-bottom:1px solid #ccc;">
+          <th style="display:table-cell;text-align:left;padding:1px 2px;font-size:${ls.fontSize - 1}pt;">Ürün</th>
+          <th style="display:table-cell;text-align:center;padding:1px 2px;font-size:${ls.fontSize - 1}pt;">SKU</th>
+          <th style="display:table-cell;text-align:right;padding:1px 2px;font-size:${ls.fontSize - 1}pt;">Adet</th>
+        </tr></thead>
+        <tbody>${urunSatirlar}${fazlaStr}${toplamStr}</tbody>
+      </table>` : ""}
+      ${ls.showBarkod ? `<div style="display:block;text-align:center;margin-top:2mm;"><svg xmlns="http://www.w3.org/2000/svg" width="150" height="28"><rect width="150" height="28" fill="white"/>${Array.from({length:75},(_,i)=>`<rect x="${i*2}" y="0" width="${i%3===0?2:1}" height="20" fill="black"/>`).join("")}<text x="75" y="27" text-anchor="middle" font-size="6" font-family="monospace">${sevk.no}-K${String(koliIdx).padStart(3,"0")}</text></svg></div>` : ""}
     </div>`;
   };
 
   const printLabels = (sevkData) => {
     const allKoliler = sevkData.koliler || [];
-    const html = `<!DOCTYPE html><html><head><style>@page{margin:0;size:${labelSettings.width}mm ${labelSettings.height}mm;}body{margin:0;padding:0;}</style></head><body>${allKoliler.map((k,i)=>generateLabelHTML(k,sevkData,i+1,allKoliler.length)).join("")}</body></html>`;
+    const html = `<!DOCTYPE html><html><head><style>@page{margin:0;size:${labelSettings.width}mm ${labelSettings.height}mm;}body{margin:0;padding:0;}table{display:table;border-collapse:collapse;width:100%;}tr{display:table-row;}td,th{display:table-cell;}</style></head><body>${allKoliler.map((k,i)=>generateLabelHTML(k,sevkData,i+1,allKoliler.length)).join("")}</body></html>`;
     const win = window.open("","_blank"); win.document.write(html); win.document.close(); setTimeout(()=>win.print(),500);
   };
 
