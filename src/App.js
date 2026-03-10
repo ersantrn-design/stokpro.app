@@ -4946,7 +4946,11 @@ function SevkiyatPage({ products, setProducts, setMovements, user, notify }) {
 
   const loadData = async () => {
     setLoading(true);
-    const { data } = await supabase.from("sevkiyatlar").select("*").order("created_at", { ascending: false }).limit(100);
+    const { data, error } = await supabase.from("sevkiyatlar").select("*").order("created_at", { ascending: false }).limit(100);
+    if (error) {
+      notify("Sevkiyat yüklenemedi: " + error.message + " — SQL migration çalıştırıldı mı?");
+      console.error("sevkiyatlar error:", error);
+    }
     if (data) setSevkiyatlar(data);
     setLoading(false);
   };
