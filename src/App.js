@@ -4378,18 +4378,43 @@ function ShipmentLabelDesigner({ onBack, saveLabelTemplate, labelTemplate, notif
 
 function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
   const [tab, setTab] = useState("list"); // list | new | label_designer
-  const [shipments, setShipments] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("stokpro_shipments") || "[]"); } catch { return []; }
-  });
-  const [selected, setSelected] = useState(null); // selected shipment
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // shipment to delete
-  const [editingShipment, setEditingShipment] = useState(null); // id being edited
+  const [shipments, setShipments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [editingShipment, setEditingShipment] = useState(null);
   const [labelTemplate, setLabelTemplate] = useState(() => {
     try { return JSON.parse(localStorage.getItem("stokpro_label_template") || "null"); } catch { return null; }
   });
 
-  const saveShipments = (s) => { setShipments(s); localStorage.setItem("stokpro_shipments", JSON.stringify(s)); };
   const saveLabelTemplate = (t) => { setLabelTemplate(t); localStorage.setItem("stokpro_label_template", JSON.stringify(t)); };
+
+  // ── SUPABASE LOAD ──
+  useEffect(() => {
+    loadShipments();
+  }, []);
+
+  const loadShipments = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("shipments")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setShipments(data || []);
+    } catch (err) {
+      // Tablo yoksa localStorage'dan yükle (fallback)
+      try {
+        const local = JSON.parse(localStorage.getItem("stokpro_shipments") || "[]");
+        setShipments(local);
+        if (local.length > 0) notify("Veriler yerel depodan yüklendi (Supabase tablosu bulunamadı)", "warning");
+      } catch { setShipments([]); }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ── NEW SHIPMENT FORM STATE ──
   const [form, setForm] = useState({
@@ -4398,7 +4423,7 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
     note: "", date: new Date().toISOString().slice(0, 10),
     boxes: [{ id: 1, items: [] }]
   });
-  const [addingProduct, setAddingProduct] = useState(null); // box id
+  const [addingProduct, setAddingProduct] = useState(null);
   const [productSearch, setProductSearch] = useState("");
   const [productQty, setProductQty] = useState(1);
 
@@ -4436,28 +4461,75 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
     }));
   };
 
-  const saveShipment = () => {
+  const resetForm = () => {
+    setForm({ shipment_no: `SEV-${Date.now().toString().slice(-6)}`, customer_name: "", customer_address: "", customer_phone: "", note: "", date: new Date().toISOString().slice(0, 10), boxes: [{ id: 1, items: [] }] });
+    setEditingShipment(null);
+  };
+
+  const saveShipment = async () => {
     const totalItems = form.boxes.reduce((s, b) => s + b.items.reduce((ss, i) => ss + i.qty, 0), 0);
     if (!form.customer_name) { notify("Müşteri adı zorunlu", "error"); return; }
     if (totalItems === 0) { notify("En az bir ürün ekleyin", "error"); return; }
-    if (editingShipment) {
-      const updated = shipments.map(s => s.id === editingShipment
-        ? { ...form, id: s.id, created_at: s.created_at, status: s.status, total_boxes: form.boxes.length, total_items: totalItems }
-        : s);
-      saveShipments(updated);
-      notify(`${form.shipment_no} güncellendi`, "success");
-      setEditingShipment(null);
-    } else {
-      const shipment = { ...form, id: Date.now(), created_at: new Date().toISOString(), status: "hazır", total_boxes: form.boxes.length, total_items: totalItems };
-      saveShipments([shipment, ...shipments]);
-      notify(`${form.shipment_no} sevkiyatı kaydedildi`, "success");
+    setSaving(true);
+    try {
+      const payload = {
+        shipment_no: form.shipment_no,
+        customer_name: form.customer_name,
+        customer_address: form.customer_address || "",
+        customer_phone: form.customer_phone || "",
+        note: form.note || "",
+        date: form.date,
+        boxes: form.boxes,
+        status: "hazır",
+        total_boxes: form.boxes.length,
+        total_items: totalItems,
+      };
+      if (editingShipment) {
+        const { error } = await supabase.from("shipments").update(payload).eq("id", editingShipment);
+        if (error) throw error;
+        notify(`${form.shipment_no} güncellendi`, "success");
+      } else {
+        const { error } = await supabase.from("shipments").insert([payload]);
+        if (error) throw error;
+        notify(`${form.shipment_no} kaydedildi`, "success");
+      }
+      await loadShipments();
+      setTab("list");
+      resetForm();
+    } catch (err) {
+      // Supabase yoksa localStorage fallback
+      const totalItems2 = form.boxes.reduce((s, b) => s + b.items.reduce((ss, i) => ss + i.qty, 0), 0);
+      if (editingShipment) {
+        const updated = shipments.map(s => s.id === editingShipment
+          ? { ...form, id: s.id, created_at: s.created_at, status: "hazır", total_boxes: form.boxes.length, total_items: totalItems2 }
+          : s);
+        setShipments(updated);
+        localStorage.setItem("stokpro_shipments", JSON.stringify(updated));
+        notify(`${form.shipment_no} güncellendi (yerel)`, "success");
+      } else {
+        const shipment = { ...form, id: Date.now(), created_at: new Date().toISOString(), status: "hazır", total_boxes: form.boxes.length, total_items: totalItems2 };
+        const updated = [shipment, ...shipments];
+        setShipments(updated);
+        localStorage.setItem("stokpro_shipments", JSON.stringify(updated));
+        notify(`${form.shipment_no} kaydedildi (yerel)`, "success");
+      }
+      setTab("list");
+      resetForm();
+    } finally {
+      setSaving(false);
     }
-    setTab("list");
-    setForm({ shipment_no: `SEV-${Date.now().toString().slice(-6)}`, customer_name: "", customer_address: "", customer_phone: "", note: "", date: new Date().toISOString().slice(0, 10), boxes: [{ id: 1, items: [] }] });
   };
 
-  const deleteShipment = (id) => {
-    saveShipments(shipments.filter(s => s.id !== id));
+  const deleteShipment = async (id) => {
+    try {
+      const { error } = await supabase.from("shipments").delete().eq("id", id);
+      if (error) throw error;
+      await loadShipments();
+    } catch {
+      const updated = shipments.filter(s => s.id !== id);
+      setShipments(updated);
+      localStorage.setItem("stokpro_shipments", JSON.stringify(updated));
+    }
     setDeleteConfirm(null);
     notify("Sevkiyat silindi", "success");
   };
@@ -4662,7 +4734,12 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
       {/* List Tab */}
       {tab === "list" && !selected && (
         <div>
-          {shipments.length === 0 ? (
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 60, color: "#78716c" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              <div style={{ fontSize: 14 }}>Sevkiyatlar yükleniyor...</div>
+            </div>
+          ) : shipments.length === 0 ? (
             <div style={{ textAlign: "center", padding: 60, color: "#78716c" }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
               <div style={{ fontSize: 16, fontWeight: 600 }}>Henüz sevkiyat yok</div>
@@ -4715,8 +4792,8 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
                 }
               </div>
             ))}
-            <button onClick={saveShipment} style={{ width: "100%", padding: "12px", background: "#18181b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 14, marginTop: 8 }}>
-              {editingShipment ? "✏️ Güncelle" : "💾 Sevkiyatı Kaydet"}
+            <button onClick={saveShipment} disabled={saving} style={{ width: "100%", padding: "12px", background: saving ? "#78716c" : "#18181b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontSize: 14, marginTop: 8 }}>
+              {saving ? "⏳ Kaydediliyor..." : editingShipment ? "✏️ Güncelle" : "💾 Sevkiyatı Kaydet"}
             </button>
           </div>
 
