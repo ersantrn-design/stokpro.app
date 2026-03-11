@@ -4419,7 +4419,7 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
         if (existing) {
           return { ...b, items: b.items.map(i => i.product_id === product.id ? { ...i, qty: i.qty + qty } : i) };
         }
-        return { ...b, items: [...b.items, { product_id: product.id, product_name: product.name, sku: product.sku || "", qty }] };
+        return { ...b, items: [...b.items, { product_id: product.id, product_name: product.name, variant: product.variant || "", sku: product.sku || "", qty }] };
       })
     }));
     setAddingProduct(null);
@@ -4718,7 +4718,10 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
                       box.items.map(item => (
                         <div key={item.product_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f4" }}>
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{item.product_name}</div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {item.product_name}
+                              {item.variant && <span style={{ fontWeight: 400, color: "#6366f1", marginLeft: 6, background: "#eef2ff", padding: "1px 6px", borderRadius: 4, fontSize: 11 }}>{item.variant}</span>}
+                            </div>
                             {item.sku && <div style={{ fontSize: 11, color: "#78716c" }}>{item.sku}</div>}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -4737,7 +4740,10 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
                         {productSearch && filteredProducts.map(p => (
                           <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", borderRadius: 6, cursor: "pointer", background: "#fff", marginBottom: 4, border: "1px solid #e7e5e4" }}>
                             <div>
-                              <div style={{ fontSize: 12, fontWeight: 600 }}>{p.name}</div>
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                {p.name}
+                                {p.variant && <span style={{ fontWeight: 400, color: "#6366f1", marginLeft: 6, background: "#eef2ff", padding: "1px 6px", borderRadius: 4, fontSize: 11 }}>{p.variant}</span>}
+                              </div>
                               <div style={{ fontSize: 10, color: "#78716c" }}>{p.sku} • Stok: {p.quantity ?? 0}</div>
                             </div>
                             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
