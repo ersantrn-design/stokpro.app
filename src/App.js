@@ -4402,15 +4402,23 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
         .from("shipments")
         .select("*")
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      setShipments(data || []);
-    } catch (err) {
-      // Tablo yoksa localStorage'dan yükle (fallback)
-      try {
+      if (error) {
+        console.error("Shipments yükleme hatası:", error);
+        // RLS hatası veya tablo yoksa localStorage fallback
         const local = JSON.parse(localStorage.getItem("stokpro_shipments") || "[]");
         setShipments(local);
-        if (local.length > 0) notify("Veriler yerel depodan yüklendi (Supabase tablosu bulunamadı)", "warning");
-      } catch { setShipments([]); }
+        if (error.code === "42501" || error.message?.includes("permission")) {
+          notify("⚠️ Supabase RLS izni gerekiyor — SQL kılavuzuna bakın", "error");
+        } else if (error.code === "42P01") {
+          notify("⚠️ 'shipments' tablosu bulunamadı — SQL kılavuzuna bakın", "error");
+        }
+      } else {
+        setShipments(data || []);
+      }
+    } catch (err) {
+      console.error("Shipments fetch exception:", err);
+      const local = JSON.parse(localStorage.getItem("stokpro_shipments") || "[]");
+      setShipments(local);
     } finally {
       setLoading(false);
     }
