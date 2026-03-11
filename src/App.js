@@ -4382,6 +4382,8 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
     try { return JSON.parse(localStorage.getItem("stokpro_shipments") || "[]"); } catch { return []; }
   });
   const [selected, setSelected] = useState(null); // selected shipment
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // shipment to delete
+  const [editingShipment, setEditingShipment] = useState(null); // id being edited
   const [labelTemplate, setLabelTemplate] = useState(() => {
     try { return JSON.parse(localStorage.getItem("stokpro_label_template") || "null"); } catch { return null; }
   });
@@ -4438,11 +4440,32 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
     const totalItems = form.boxes.reduce((s, b) => s + b.items.reduce((ss, i) => ss + i.qty, 0), 0);
     if (!form.customer_name) { notify("Müşteri adı zorunlu", "error"); return; }
     if (totalItems === 0) { notify("En az bir ürün ekleyin", "error"); return; }
-    const shipment = { ...form, id: Date.now(), created_at: new Date().toISOString(), status: "hazır", total_boxes: form.boxes.length, total_items: totalItems };
-    saveShipments([shipment, ...shipments]);
-    notify(`${form.shipment_no} sevkiyatı kaydedildi`, "success");
+    if (editingShipment) {
+      const updated = shipments.map(s => s.id === editingShipment
+        ? { ...form, id: s.id, created_at: s.created_at, status: s.status, total_boxes: form.boxes.length, total_items: totalItems }
+        : s);
+      saveShipments(updated);
+      notify(`${form.shipment_no} güncellendi`, "success");
+      setEditingShipment(null);
+    } else {
+      const shipment = { ...form, id: Date.now(), created_at: new Date().toISOString(), status: "hazır", total_boxes: form.boxes.length, total_items: totalItems };
+      saveShipments([shipment, ...shipments]);
+      notify(`${form.shipment_no} sevkiyatı kaydedildi`, "success");
+    }
     setTab("list");
     setForm({ shipment_no: `SEV-${Date.now().toString().slice(-6)}`, customer_name: "", customer_address: "", customer_phone: "", note: "", date: new Date().toISOString().slice(0, 10), boxes: [{ id: 1, items: [] }] });
+  };
+
+  const deleteShipment = (id) => {
+    saveShipments(shipments.filter(s => s.id !== id));
+    setDeleteConfirm(null);
+    notify("Sevkiyat silindi", "success");
+  };
+
+  const openEditShipment = (s) => {
+    setForm({ shipment_no: s.shipment_no, customer_name: s.customer_name, customer_address: s.customer_address || "", customer_phone: s.customer_phone || "", note: s.note || "", date: s.date, boxes: s.boxes });
+    setEditingShipment(s.id);
+    setTab("new");
   };
 
   const filteredProducts = products.filter(p =>
@@ -4626,8 +4649,8 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
             <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>Koli yönetimi, packing list ve etiket yazdırma</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {[["list", "📋 Sevkiyatlar"], ["new", "➕ Yeni Sevkiyat"], ["label_designer", "🎨 Etiket Tasarımcısı"]].map(([t, l]) => (
-              <button key={t} onClick={() => { setTab(t); setSelected(null); }}
+            {[["list", "📋 Sevkiyatlar"], ["new", editingShipment ? "✏️ Düzenle" : "➕ Yeni Sevkiyat"], ["label_designer", "🎨 Etiket Tasarımcısı"]].map(([t, l]) => (
+              <button key={t} onClick={() => { setTab(t); setSelected(null); if (t !== "new") setEditingShipment(null); }}
                 style={{ padding: "8px 14px", background: tab === t ? "#fff" : "rgba(255,255,255,0.15)", color: tab === t ? "#0f172a" : "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: tab === t ? 700 : 500, fontSize: 13 }}>
                 {l}
               </button>
@@ -4660,8 +4683,10 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
                     <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 700 }}>{s.total_items}</div><div style={{ fontSize: 10, color: "#78716c" }}>Ürün</div></div>
                     <span style={{ background: "#dcfce7", color: "#16a34a", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{s.status}</span>
                     <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
-                      <button onClick={() => printPackingList(s)} style={{ padding: "6px 10px", background: "#f5f5f4", border: "1px solid #e7e5e4", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>📄</button>
-                      <button onClick={() => printBoxLabels(s)} style={{ padding: "6px 10px", background: "#18181b", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>🖨️</button>
+                      <button onClick={() => printPackingList(s)} title="Packing List" style={{ padding: "6px 10px", background: "#f5f5f4", border: "1px solid #e7e5e4", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>📄</button>
+                      <button onClick={() => printBoxLabels(s)} title="Etiket Yazdır" style={{ padding: "6px 10px", background: "#18181b", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>🖨️</button>
+                      <button onClick={() => openEditShipment(s)} title="Düzenle" style={{ padding: "6px 10px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>✏️</button>
+                      <button onClick={() => setDeleteConfirm(s)} title="Sil" style={{ padding: "6px 10px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>🗑️</button>
                     </div>
                   </div>
                 </div>
@@ -4691,7 +4716,7 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
               </div>
             ))}
             <button onClick={saveShipment} style={{ width: "100%", padding: "12px", background: "#18181b", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 14, marginTop: 8 }}>
-              💾 Sevkiyatı Kaydet
+              {editingShipment ? "✏️ Güncelle" : "💾 Sevkiyatı Kaydet"}
             </button>
           </div>
 
@@ -4768,6 +4793,23 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
 
       {/* Label Designer Tab */}
       {tab === "label_designer" && <ShipmentLabelDesigner onBack={()=>setTab("list")} saveLabelTemplate={saveLabelTemplate} labelTemplate={labelTemplate} notify={notify} />}
+
+      {/* ── SİLME ONAY MODALI ── */}
+      {deleteConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 28, width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>🗑️</div>
+            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Sevkiyatı Sil</div>
+            <div style={{ fontSize: 14, color: "#78716c", marginBottom: 20 }}>
+              <strong>{deleteConfirm.shipment_no}</strong> — {deleteConfirm.customer_name} sevkiyatı silinecek. Bu işlem geri alınamaz.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: "10px", background: "#f5f5f4", border: "1px solid #e7e5e4", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 14 }}>İptal</button>
+              <button onClick={() => deleteShipment(deleteConfirm.id)} style={{ flex: 1, padding: "10px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 14 }}>Sil</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
