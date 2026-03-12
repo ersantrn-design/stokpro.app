@@ -4555,41 +4555,116 @@ function ShipmentPage({ products, setProducts, setMovements, user, notify }) {
 
   // ── PACKING LIST PRINT ──
   const printPackingList = (shipment) => {
-    const tpl = labelTemplate || defaultLabelTemplate;
-    const w = tpl.width_mm; const h = tpl.height_mm;
     const win = window.open("", "_blank");
-    const boxesHtml = shipment.boxes.map((box, bi) => `
-      <div class="box-section">
-        <div class="box-header">KOLİ ${bi + 1} / ${shipment.boxes.length}</div>
+
+    // Her kolinin satır HTML'i — varyant sütunu dahil
+    const boxesHtml = shipment.boxes.map((box, bi) => {
+      const rows = box.items.map(i => `
+        <tr>
+          <td class="col-urun">${i.product_name}</td>
+          <td class="col-varyant">${i.variant || "—"}</td>
+          <td class="col-sku">${i.sku || "—"}</td>
+          <td class="col-adet">${i.qty}</td>
+        </tr>`).join("");
+      const boxTotal = box.items.reduce((s, i) => s + i.qty, 0);
+      return `
+        <div class="box-section">
+          <div class="box-header">
+            <span>KOLİ ${bi + 1} / ${shipment.boxes.length}</span>
+            <span class="box-total">${box.items.length} çeşit &nbsp;·&nbsp; ${boxTotal} adet</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="col-urun">Ürün</th>
+                <th class="col-varyant">Varyant</th>
+                <th class="col-sku">SKU</th>
+                <th class="col-adet">Adet</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join("");
+
+    // Genel toplam özeti
+    const grandTotalQty = shipment.boxes.reduce((s, b) => s + b.items.reduce((ss, i) => ss + i.qty, 0), 0);
+    const grandTotalLines = shipment.boxes.reduce((s, b) => s + b.items.length, 0);
+
+    // Ürün bazlı özet (tüm kolilerdeki aynı SKU'ları topla)
+    const skuMap = {};
+    shipment.boxes.forEach(b => b.items.forEach(i => {
+      const key = i.sku || i.product_name;
+      if (!skuMap[key]) skuMap[key] = { name: i.product_name, variant: i.variant || "—", sku: i.sku || "—", qty: 0 };
+      skuMap[key].qty += i.qty;
+    }));
+    const summaryRows = Object.values(skuMap).map(r => `
+      <tr>
+        <td class="col-urun">${r.name}</td>
+        <td class="col-varyant">${r.variant}</td>
+        <td class="col-sku">${r.sku}</td>
+        <td class="col-adet">${r.qty}</td>
+      </tr>`).join("");
+
+    win.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="utf-8">
+      <title>Packing List - ${shipment.shipment_no}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #111; padding: 16px 20px; }
+        h2 { font-size: 15px; font-weight: bold; margin-bottom: 6px; }
+        .header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 14px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 24px; margin-top: 6px; }
+        .info-grid div { font-size: 11px; }
+        .box-section { margin-bottom: 14px; page-break-inside: avoid; }
+        .box-header { background: #111; color: #fff; padding: 5px 8px; font-weight: bold; font-size: 11px; display: flex; justify-content: space-between; }
+        .box-total { font-weight: normal; font-size: 10px; opacity: 0.85; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        th { background: #f0f0f0; font-weight: bold; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+        tr:nth-child(even) td { background: #fafafa; }
+        .col-urun  { width: 38%; }
+        .col-varyant { width: 26%; }
+        .col-sku   { width: 24%; }
+        .col-adet  { width: 12%; text-align: right; font-weight: 600; }
+        th.col-adet { text-align: right; }
+        .summary-section { margin-top: 20px; page-break-inside: avoid; border-top: 2px solid #000; padding-top: 12px; }
+        .summary-header { background: #333; color: #fff; padding: 5px 8px; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+        .grand-total { margin-top: 10px; border-top: 2px solid #000; padding-top: 8px; display: flex; justify-content: flex-end; gap: 32px; font-size: 12px; }
+        .grand-total span { font-weight: bold; }
+        @media print { body { padding: 6mm 8mm; } }
+      </style>
+    </head><body>
+      <div class="header">
+        <h2>📦 PACKING LIST — ${shipment.shipment_no}</h2>
+        <div class="info-grid">
+          <div><b>Müşteri:</b> ${shipment.customer_name}</div>
+          <div><b>Tarih:</b> ${shipment.date}</div>
+          <div><b>Adres:</b> ${shipment.customer_address || "—"}</div>
+          <div><b>Toplam Koli:</b> ${shipment.total_boxes} &nbsp;·&nbsp; <b>Toplam Ürün:</b> ${grandTotalQty} adet</div>
+        </div>
+      </div>
+
+      ${boxesHtml}
+
+      <div class="summary-section">
+        <div class="summary-header">📋 GENEL ÖZET — Tüm Ürünler</div>
         <table>
-          <thead><tr><th>Ürün</th><th>SKU</th><th>Adet</th></tr></thead>
-          <tbody>${box.items.map(i => `<tr><td>${i.product_name}</td><td>${i.sku}</td><td>${i.qty}</td></tr>`).join("")}</tbody>
+          <thead>
+            <tr>
+              <th class="col-urun">Ürün</th>
+              <th class="col-varyant">Varyant</th>
+              <th class="col-sku">SKU</th>
+              <th class="col-adet">Toplam</th>
+            </tr>
+          </thead>
+          <tbody>${summaryRows}</tbody>
         </table>
+        <div class="grand-total">
+          <div>${grandTotalLines} kalem</div>
+          <div>Toplam: <span>${grandTotalQty} adet</span></div>
+        </div>
       </div>
-    `).join("");
-    win.document.write(`<!DOCTYPE html><html><head><title>Packing List - ${shipment.shipment_no}</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }
-      h2 { font-size: 16px; margin: 0 0 4px; }
-      .header { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
-      .info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 12px; }
-      .box-section { margin-bottom: 16px; page-break-inside: avoid; }
-      .box-header { background: #000; color: #fff; padding: 4px 8px; font-weight: bold; font-size: 12px; margin-bottom: 4px; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border: 1px solid #ccc; padding: 3px 6px; text-align: left; }
-      th { background: #f5f5f5; font-weight: bold; }
-      @media print { body { margin: 5mm; } }
-    </style></head><body>
-    <div class="header">
-      <h2>📦 PACKING LIST — ${shipment.shipment_no}</h2>
-      <div class="info">
-        <div><b>Müşteri:</b> ${shipment.customer_name}</div>
-        <div><b>Tarih:</b> ${shipment.date}</div>
-        <div><b>Adres:</b> ${shipment.customer_address || "—"}</div>
-        <div><b>Toplam Koli:</b> ${shipment.total_boxes}</div>
-      </div>
-    </div>
-    ${boxesHtml}
     </body></html>`);
     win.document.close();
     setTimeout(() => win.print(), 500);
